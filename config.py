@@ -7,9 +7,8 @@ Everything tunable lives here so the rest of the code stays clean.
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.path.join(BASE_DIR, "data")   # holds data/elo_seed.json
 TMP_DIR = os.path.join(BASE_DIR, ".tmp")
-DB_PATH = os.path.join(DATA_DIR, "betsu.db")
 
 # --- Ensemble weights -------------------------------------------------------
 # Probabilities from each predictor are blended with these weights.
@@ -26,9 +25,16 @@ ENSEMBLE_WEIGHTS = {
 # A bet is "value" when our blended probability implies a fair price below the
 # bookmaker's offered price. Edge = model_prob * decimal_odds - 1.
 MIN_EDGE = 0.05          # only suggest bets with >= 5% expected value
-MAX_BETS_PER_DAY = 8     # cap the daily message to the best N
+MAX_BETS_PER_DAY = 8     # cap each run's message to the best N new bets
 FLAT_STAKE_UNITS = 1.0   # paper staking: 1 unit per suggested bet
 KELLY_FRACTION = 0.25    # shown as a guide for real-money sizing (quarter Kelly)
+
+# --- Scan window ------------------------------------------------------------
+# The scheduled run scans fixtures kicking off within the next SCAN_WINDOW_HOURS
+# that have not started yet (a slate runs afternoon→~03:00 Amsterdam, so a single
+# daily run would miss the early or late games). Two runs/day cover it, and dedup
+# means a late game is posted from the prior evening's run, before kickoff.
+SCAN_WINDOW_HOURS = int(os.environ.get("SCAN_WINDOW_HOURS", "18"))
 
 # --- Elo model --------------------------------------------------------------
 ELO_HOME_ADVANTAGE = 65   # rating points added to the home/designated team
@@ -59,17 +65,21 @@ ODDS_MARKETS = "h2h,totals,btts"   # 1X2 + Over/Under + both-teams-to-score.
 ODDS_SPORT_WORLDCUP = "soccer_fifa_world_cup"
 # Pre-tournament we also test on friendlies / other live soccer.
 
-# --- Google Sheets mirror (optional) ----------------------------------------
-# A service account writes a live mirror of the SQLite store to a Google Sheet
-# so you can track performance from anywhere (incl. once deployed on Railway).
-# SQLite stays the source of truth; the sheet is rewritten from it each run.
-# GOOGLE_SHEETS_ID and GOOGLE_CREDENTIALS_PATH live in .env (account-specific);
-# the sync only activates when GOOGLE_SHEETS_ID is set, so unconfigured runs are
-# unaffected. The default credentials path is the project root.
+# --- Google Sheets store (primary) ------------------------------------------
+# Google Sheets is betsu's single source of truth — there is no local DB. The
+# tracker reads/writes these tabs. Auth is a Google Cloud *service account*:
+#   deploy — GOOGLE_CREDENTIALS_JSON  (full key JSON pasted into an env var)
+#   local  — a credentials.json key file (GOOGLE_CREDENTIALS_PATH, default below)
+# GOOGLE_SHEETS_ID selects the spreadsheet. See docs/google_sheets_setup.md.
 SHEETS_CREDENTIALS_DEFAULT = os.path.join(BASE_DIR, "credentials.json")
 SHEETS_TAB_BETS = "Bets"
 SHEETS_TAB_RESULTS = "Results"
+SHEETS_TAB_MATCHES = "Matches"
 SHEETS_TAB_SUMMARY = "Summary"
+# Read-through cache TTL (seconds): keeps dashboard page loads snappy and stays
+# under the Sheets read quota. Writes invalidate it immediately, so a run always
+# reads its own fresh writes.
+SHEETS_CACHE_TTL = int(os.environ.get("SHEETS_CACHE_TTL", "5"))
 
 # --- LLM --------------------------------------------------------------------
 LLM_MODEL = "claude-sonnet-4-6"

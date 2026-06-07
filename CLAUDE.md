@@ -43,44 +43,60 @@ stake; a quarter-Kelly figure is shown as a real-money sizing guide.
 - `elo.py` — Elo ratings + 1X2 probabilities + result-based updates
 - `ensemble.py` — blend predictor probabilities (+ optional LLM nudge)
 - `value.py` — value bets from blended probs vs odds, with Kelly guide
-- `tracker.py` — SQLite store: matches, bets, results, grading, ROI summary
+- `tracker.py` — Google Sheets store: matches, bets, results, grading, ROI summary
+- `poisson.py` — Dixon-Coles goal model (1X2 + Over/Under 2.5 + BTTS)
 - `message.py` — format the Telegram bet card and results recap
 - `telegram_send.py` — send to the configured chat
-- `poisson.py`, `llm_context.py` — phase 1 (not yet built)
+- `llm_context.py` — phase 1 (not yet built)
 
 **Workflows** (`workflows/`, plain-language SOPs): `daily_run.md`
 
-**Agent** (`run_daily.py`): orchestrates the morning and grade runs.
+**Agent** (`run_daily.py`): orchestrates the scan and grade runs — the windowed
+scan posts only genuinely-new bets (dedup), so it's safe to run repeatedly.
+
+**Service** (`app.py`): stateless Flask app (gunicorn on Railway). Serves the
+performance dashboard and the protected `POST /run/morning` / `POST /run/grade`
+endpoints that n8n calls on a schedule. See `docs/deploy_runbook.md`.
 
 ## Running it
 
 ```bash
 pip install -r requirements.txt
-python tools/tracker.py init           # one-time: create the SQLite store
-python run_daily.py --dry-run          # build today's card, print it, send nothing
-python run_daily.py                     # build, store, and send to Telegram
-python run_daily.py --grade             # settle pending bets, send results recap
+python tools/tracker.py status         # check the Google Sheets store is configured
+python tools/tracker.py init           # one-time: ensure the sheet tabs exist
+python run_daily.py --window --dry-run # build the card for the next SCAN_WINDOW_HOURS, send nothing
+python run_daily.py --window           # scan, store new bets, send to Telegram
+python run_daily.py --grade            # settle pending bets, send results recap
+python app.py                          # run the dashboard + endpoints locally (http://127.0.0.1:5000)
 python tools/elo.py "Brazil" "Spain"   # sanity-check the Elo model
-python tools/fixtures.py --sports       # list odds-api soccer sport keys
+python tools/fixtures.py --sports      # list odds-api soccer sport keys
 ```
 
 ## Configuration
 
 All secrets in `.env` (gitignored): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-`ODDS_API_KEY`, `ANTHROPIC_API_KEY`. All tunables in `config.py`.
+`ODDS_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_SHEETS_ID`, and the Google
+service-account creds (`GOOGLE_CREDENTIALS_PATH` locally / `GOOGLE_CREDENTIALS_JSON`
+on Railway). The Flask service also reads `RUN_API_KEY` and optional
+`DASHBOARD_USER` / `DASHBOARD_PASSWORD`. All tunables in `config.py`; see
+`.env.example` and `docs/google_sheets_setup.md`.
 
 ## Data sources
 
 - Fixtures + odds: the-odds-api.com (free tier). Sport key `soccer_fifa_world_cup`.
 - Elo seeds: `data/elo_seed.json` — APPROXIMATE starting values, refresh from
   eloratings.net before the tournament. The model refines them as results land.
-- Results: manual entry or football-data.org (free tier) for grading.
+- Store: Google Sheets (Bets / Results / Matches / Summary tabs) — the single
+  source of truth; see `docs/google_sheets_setup.md`.
+- Results: typed into the Sheets **Results** tab (or `tracker.record_result`);
+  football-data.org auto-results is a later add.
 
 ## Status / roadmap
 
-- **MVP (now):** market + Elo ensemble, 1X2 value bets, Telegram card, SQLite tracking. Built and tested.
-- **Phase 1 (group stage):** add Poisson (Over/Under, BTTS) and the LLM context layer; tune weights on real results.
-- **Phase 2 (knockouts):** keep what calibrates well, drop dead weight. Optional Flask/Railway deploy + scheduler for hands-off daily runs.
+- **MVP (done):** market + Elo + Poisson ensemble; 1X2 / O-U 2.5 / BTTS value bets; Telegram card; Flask dashboard. Built and tested.
+- **Deploy (done):** stateless Flask service on Railway, Google Sheets store, n8n-scheduled run endpoints (windowed scan + dedup). See `docs/deploy_briefing.md` and `docs/deploy_runbook.md`.
+- **Phase 1 (group stage):** add the LLM context nudge; tune ensemble weights on real results.
+- **Phase 2 (knockouts):** keep what calibrates well, drop dead weight; optional football-data.org auto-results.
 
 ## Notes
 

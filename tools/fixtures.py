@@ -16,7 +16,7 @@ CLI:
 
 import os
 import sys
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -107,14 +107,36 @@ def _best_btts(event):
     return best
 
 
-def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION):
+def _parse_iso(ts):
+    """Parse an ISO-8601 commence_time (the-odds-api uses '...Z') to aware UTC."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION,
+                window_hours=None):
     """
-    Return a list of match dicts for target_date (default today, UTC date):
-      {home_team, away_team, commence_time, odds:{"1","X","2"}, market_probs:{...}}
+    Return a list of match dicts:
+      {home_team, away_team, commence_time, odds:{"1","X","2"}, market_probs:{...},
+       totals_odds, btts_odds}
     Matches with incomplete 1X2 odds are skipped.
+
+    Selection mode:
+      - window_hours set: upcoming events that have NOT kicked off and start
+        within now .. now + window_hours (used by the scheduled run; spans a
+        whole afternoon→late-night slate so nothing is missed).
+      - otherwise: events on target_date (UTC date, default today) — kept for
+        manual/CLI use.
     """
     _require_key()
     target = target_date or str(date.today())
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(hours=window_hours) if window_hours is not None else None
 
     url = f"{ODDS_API_BASE}/sports/{sport}/odds"
     params = {
@@ -131,9 +153,14 @@ def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION)
     matches = []
     for ev in events:
         commence = ev.get("commence_time")
-        ev_date = commence[:10] if commence else None  # ISO date (UTC)
-        if ev_date != target:
-            continue
+        if window_hours is not None:
+            kickoff = _parse_iso(commence)
+            if kickoff is None or kickoff < now or kickoff > horizon:
+                continue  # already started, too far out, or unparseable
+        else:
+            ev_date = commence[:10] if commence else None  # ISO date (UTC)
+            if ev_date != target:
+                continue
         odds = _best_odds(ev)
         if not all(k in odds for k in ("1", "X", "2")):
             continue  # need full 1X2 to value a bet
@@ -157,8 +184,10 @@ if __name__ == "__main__":
             print(f"{s['key']:35} active={s.get('active')}  {s['title']}")
         sys.exit(0)
     date_arg = next((a.split("=")[1] for a in sys.argv if a.startswith("--date=")), None)
-    ms = get_matches(target_date=date_arg)
-    print(f"{len(ms)} match(es) for {date_arg or 'today'}")
+    win_arg = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--window=")), None)
+    ms = get_matches(target_date=date_arg, window_hours=win_arg)
+    scope = f"next {win_arg}h" if win_arg is not None else (date_arg or "today")
+    print(f"{len(ms)} match(es) for {scope}")
     for m in ms:
         print(f"  {m['home_team']} vs {m['away_team']}  odds={m['odds']}  "
               f"mkt={m['market_probs']}")

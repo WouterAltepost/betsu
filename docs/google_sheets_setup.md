@@ -1,13 +1,13 @@
-# Google Sheets sync — one-time setup
+# Google Sheets store — one-time setup
 
-betsu mirrors its SQLite tracker to a Google Sheet after every run, so you can
-watch performance from your phone or anywhere else. SQLite stays the source of
-truth; the sheet is rewritten from it each run (three tabs: **Bets**,
-**Results**, **Summary**).
+Google Sheets is betsu's **single source of truth** (there is no local database).
+The tracker reads and writes four tabs: **Bets**, **Results**, **Matches**, and
+**Summary**. You can watch performance from your phone, and — because the sheet is
+the hub — type final scores straight into the **Results** tab for grading.
 
-The daily run is automated and headless (and will be on Railway), so it
-authenticates with a **service account** rather than your personal Google
-login. You set this up once. Budget ~10 minutes.
+betsu runs headless (locally and on Railway), so it authenticates with a Google
+Cloud **service account**, not your personal login. You set this up once. Budget
+~10 minutes.
 
 ## 1. Create a Google Cloud project
 
@@ -31,8 +31,8 @@ In the project, open **APIs & Services → Library** and enable both:
    role/grant steps, click **Done**.
 3. Click the new service account → **Keys** tab → **Add key → Create new key →
    JSON**. A `.json` file downloads. This is the credential.
-4. Copy that file into the betsu project root and rename it `credentials.json`.
-   (It is already gitignored, so it will never be committed. Never share it.)
+4. For **local** use, copy that file into the betsu project root and rename it
+   `credentials.json` (it is gitignored — never commit or share it).
 5. Open the file and copy the `client_email` value — it looks like
    `betsu-writer@betsu-xxxx.iam.gserviceaccount.com`. You need it in step 5.
 
@@ -43,8 +43,8 @@ In the project, open **APIs & Services → Library** and enable both:
    `/d/` and `/edit`:
    `https://docs.google.com/spreadsheets/d/`**`THIS_IS_THE_ID`**`/edit`
 
-You don't need to make any tabs — betsu creates Bets / Results / Summary
-automatically on first sync.
+You don't need to make any tabs — betsu creates Bets / Results / Matches /
+Summary automatically on first use.
 
 ## 5. Share the sheet with the service account
 
@@ -54,31 +54,42 @@ just grants the bot write access.)
 
 ## 6. Point betsu at it
 
-In your `.env`:
+In your `.env` (local):
 
 ```
 GOOGLE_SHEETS_ID=THE_ID_FROM_STEP_4
 GOOGLE_CREDENTIALS_PATH=credentials.json
 ```
 
-Install the new deps if you haven't: `pip install -r requirements.txt`.
+For **deployment** (Railway), there is no key file — paste the full JSON into an
+env var instead, which takes precedence over the file path:
+
+```
+GOOGLE_CREDENTIALS_JSON={ ...the entire service-account JSON... }
+```
+
+Install the deps if you haven't: `pip install -r requirements.txt`.
 
 ## 7. Verify
 
 ```bash
-python tools/sheets.py status     # should say "Sheets sync ON ..."
-python tools/sheets.py sync       # pushes current DB state to the sheet
+python tools/tracker.py status    # should say "Store ON — sheet <id>, key credentials.json."
+python tools/tracker.py init      # ensures the Bets/Results/Matches/Summary tabs exist
+python tools/tracker.py summary   # prints the running record (empty at first)
 ```
 
-Open the sheet — you should see the three tabs populated. From now on every
-`python run_daily.py` and `python run_daily.py --grade` syncs automatically.
+Open the sheet — you should see the tabs. From then on every run (`run_daily.py`,
+or the `/run/morning` and `/run/grade` endpoints) reads and writes them directly.
 
 ## Notes
 
-- The sync is **optional and fail-safe**: if `GOOGLE_SHEETS_ID` is blank or the
-  key is missing, betsu runs exactly as before and just skips the sync.
-- A Sheets error never blocks the Telegram card or grading — it's wrapped and
-  logged, not raised.
-- The sheet is a **mirror**: betsu overwrites the three tabs each run, so don't
-  hand-edit them expecting edits to stick. Use the SQLite DB (or add columns in
-  new tabs) if you want notes that persist.
+- **The sheet is the store, not a mirror.** Edits stick. In particular you can
+  type final scores into the **Results** tab (`home_score`, `away_score`) and the
+  next `/run/grade` settles the matching bets.
+- **Schema upgrades are safe.** If a tab exists but is empty with an outdated
+  header (e.g. a Bets tab from the old mirror), betsu rewrites the header to the
+  current schema on first use. If a tab already holds data under a mismatched
+  header, betsu refuses to append (to avoid misaligning columns) and asks you to
+  clear or recreate that tab — your data is never silently corrupted.
+- **Dedup.** A bet is keyed by `(match_date, home, away, market, selection)`, so
+  re-running a scan only ever appends genuinely new selections.

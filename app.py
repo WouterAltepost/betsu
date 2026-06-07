@@ -1,27 +1,107 @@
 """
-dashboard.py — local performance dashboard for betsu.
+app.py — betsu's single Flask service (stateless; deploy on Railway with gunicorn).
 
-A single-file Flask app that reads the SQLite tracker and shows the running
-record, ROI, a cumulative P&L chart, and a colour-coded table of every bet.
-No external services; it just visualises data/betsu.db.
+It does two jobs:
+  - serves the performance dashboard at GET / (reads the Google Sheets store)
+  - exposes protected run endpoints that n8n calls on a schedule:
+      POST /run/morning  — windowed scan, post only new value bets
+      POST /run/grade    — settle pending bets against the Results tab
+  - GET /healthz         — liveness check (no Sheets call), for n8n/Railway
+
+Auth:
+  - run endpoints require RUN_API_KEY, sent as header `X-Run-Key: <key>` or `?key=`.
+  - the dashboard uses HTTP Basic Auth when DASHBOARD_USER/DASHBOARD_PASSWORD are
+    set (open if unset, for local dev).
+
+Runs are synchronous inside the request (a few seconds) — gunicorn --timeout 120.
+No background worker, no in-process scheduler; n8n owns scheduling.
 
 Run:
-    python dashboard.py            # serves http://127.0.0.1:5000
-    PORT=8080 python dashboard.py  # custom port
-
-Deploying this (e.g. on Railway) is optional and comes later; locally it's the
-quickest way to "see performance" without touching Google.
+    python app.py                                   # local dev, http://127.0.0.1:5000
+    gunicorn app:app --workers 2 --timeout 120      # production (see Procfile)
 """
 
+import hmac
 import os
 import sys
+from datetime import date
+from functools import wraps
 
-from flask import Flask, render_template_string
+from flask import Flask, Response, jsonify, render_template_string, request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import run_daily
+from config import SCAN_WINDOW_HOURS
 from tools import tracker as tracker_mod
 
 app = Flask(__name__)
+
+RUN_API_KEY = os.environ.get("RUN_API_KEY", "").strip()
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+
+
+# --- Auth helpers -----------------------------------------------------------
+
+def require_run_key(f):
+    """Gate a run endpoint on RUN_API_KEY (header X-Run-Key or ?key=)."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not RUN_API_KEY:
+            return jsonify({"error": "run endpoints disabled: RUN_API_KEY not set"}), 503
+        provided = request.headers.get("X-Run-Key") or request.args.get("key") or ""
+        if not hmac.compare_digest(provided, RUN_API_KEY):
+            return jsonify({"error": "unauthorized"}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_dashboard_auth(f):
+    """HTTP Basic Auth for the dashboard when creds are configured; open if not."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if DASHBOARD_USER or DASHBOARD_PASSWORD:
+            auth = request.authorization
+            ok = (auth is not None
+                  and hmac.compare_digest(auth.username or "", DASHBOARD_USER)
+                  and hmac.compare_digest(auth.password or "", DASHBOARD_PASSWORD))
+            if not ok:
+                return Response(
+                    "Authentication required.", 401,
+                    {"WWW-Authenticate": 'Basic realm="betsu"'})
+        return f(*args, **kwargs)
+    return wrapper
+
+
+# --- Health + run endpoints -------------------------------------------------
+
+@app.route("/healthz")
+def healthz():
+    """Liveness only — deliberately does not touch Sheets, so it stays green
+    during boot and even if the store is briefly unreachable."""
+    return "ok", 200
+
+
+@app.route("/run/morning", methods=["POST"])
+@require_run_key
+def run_morning_endpoint():
+    result = run_daily.run_morning(str(date.today()), window_hours=SCAN_WINDOW_HOURS)
+    return jsonify({
+        "ok": True,
+        "matches": result["matches"],
+        "new_bets": result["new_bets"],
+        "sent": result["sent"],
+    })
+
+
+@app.route("/run/grade", methods=["POST"])
+@require_run_key
+def run_grade_endpoint():
+    result = run_daily.run_grade(str(date.today()))
+    return jsonify({"ok": True, "settled": result["settled"], "record": result["record"]})
+
+
+# --- Dashboard --------------------------------------------------------------
 
 TEMPLATE = """
 <!doctype html>
@@ -62,7 +142,7 @@ TEMPLATE = """
 <body>
 <div class="wrap">
   <h1>⚽ betsu — performance</h1>
-  <div class="sub">Paper-traded unless flagged real. Source: data/betsu.db</div>
+  <div class="sub">Paper-traded unless flagged real. Source: Google Sheets</div>
 
   <div class="cards">
     <div class="card"><div class="label">Record (W-L)</div>
@@ -95,9 +175,9 @@ TEMPLATE = """
         <td>{{ b.home_team }} vs {{ b.away_team }}</td>
         <td>{{ b.market }}</td>
         <td>{{ b.selection_label or b.selection }}</td>
-        <td>{{ '%.2f'|format(b.odds) }}</td>
-        <td>{{ '%.0f'|format(b.model_prob * 100) }}%</td>
-        <td class="{{ 'pos' if b.edge > 0 else 'muted' }}">{{ '%+.1f'|format(b.edge * 100) }}%</td>
+        <td>{{ '%.2f'|format(b.odds) if b.odds is not none else '—' }}</td>
+        <td>{{ '%.0f'|format(b.model_prob * 100) if b.model_prob is not none else '—' }}%</td>
+        <td class="{{ 'pos' if (b.edge or 0) > 0 else 'muted' }}">{{ '%+.1f'|format((b.edge or 0) * 100) }}%</td>
         <td><span class="pill {{ b.result }}">{{ b.result }}</span></td>
         <td class="{{ 'pos' if (b.pnl_units or 0) > 0 else 'neg' if (b.pnl_units or 0) < 0 else 'muted' }}">
           {{ '%+.2f'|format(b.pnl_units) if b.pnl_units is not none else '—' }}</td>
@@ -149,8 +229,8 @@ def _pnl_curve(bets):
 
 
 @app.route("/")
+@require_dashboard_auth
 def index():
-    tracker_mod.init_db()
     bets = tracker_mod.fetch_bets()
     s = tracker_mod.summary()
     labels, values = _pnl_curve(bets)
