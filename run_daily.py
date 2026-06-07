@@ -44,6 +44,16 @@ def _neutral_and_host(home, away):
     return True
 
 
+def _sync_sheets():
+    """Mirror the DB to Google Sheets if configured. Never raises."""
+    try:
+        from tools import sheets as sheets_mod
+        if sheets_mod.enabled():
+            print(f"[betsu] {sheets_mod.sync_all()}")
+    except Exception as e:
+        print(f"[betsu] Sheets sync skipped: {e}")
+
+
 def run_morning(run_date, dry_run=False):
     ratings = elo_mod.load_ratings()
     matches = fixtures_mod.get_matches(target_date=run_date)
@@ -108,6 +118,7 @@ def run_morning(run_date, dry_run=False):
     from tools.telegram_send import send_message
     send_message(card)
     print(f"[betsu] Sent card with {len(ranked)} bet(s).")
+    _sync_sheets()
     return card
 
 
@@ -118,6 +129,7 @@ def run_grade(run_date):
     from tools.telegram_send import send_message
     send_message(recap)
     print(f"[betsu] Graded {settled} bet(s).")
+    _sync_sheets()
     return recap
 
 

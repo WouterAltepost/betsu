@@ -59,6 +59,18 @@ ODDS_MARKETS = "h2h,totals,btts"   # 1X2 + Over/Under + both-teams-to-score.
 ODDS_SPORT_WORLDCUP = "soccer_fifa_world_cup"
 # Pre-tournament we also test on friendlies / other live soccer.
 
+# --- Google Sheets mirror (optional) ----------------------------------------
+# A service account writes a live mirror of the SQLite store to a Google Sheet
+# so you can track performance from anywhere (incl. once deployed on Railway).
+# SQLite stays the source of truth; the sheet is rewritten from it each run.
+# GOOGLE_SHEETS_ID and GOOGLE_CREDENTIALS_PATH live in .env (account-specific);
+# the sync only activates when GOOGLE_SHEETS_ID is set, so unconfigured runs are
+# unaffected. The default credentials path is the project root.
+SHEETS_CREDENTIALS_DEFAULT = os.path.join(BASE_DIR, "credentials.json")
+SHEETS_TAB_BETS = "Bets"
+SHEETS_TAB_RESULTS = "Results"
+SHEETS_TAB_SUMMARY = "Summary"
+
 # --- LLM --------------------------------------------------------------------
 LLM_MODEL = "claude-sonnet-4-6"
 

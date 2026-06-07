@@ -3,3 +3,5 @@ python-dotenv
 rapidfuzz
 anthropic
 flask
+gspread
+google-auth

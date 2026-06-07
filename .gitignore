@@ -1,6 +1,11 @@
 # Secrets — never commit
 .env
 
+# Google service-account key — never commit
+credentials.json
+credentials*.json
+*-service-account*.json
+
 # Local data store and intermediates
 data/*.db
 data/*.db-journal

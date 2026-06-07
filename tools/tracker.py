@@ -179,6 +179,24 @@ def grade_pending():
     return settled
 
 
+def fetch_bets():
+    """All suggested bets, oldest first. List of plain dicts."""
+    conn = connect()
+    rows = conn.execute(
+        "SELECT * FROM bets ORDER BY match_date, id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def fetch_results():
+    """All recorded results, oldest first. List of plain dicts."""
+    conn = connect()
+    rows = conn.execute(
+        "SELECT * FROM results ORDER BY match_date, id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def summary():
     conn = connect()
     rows = conn.execute(
