@@ -43,7 +43,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (SHEETS_CACHE_TTL, SHEETS_CREDENTIALS_DEFAULT, SHEETS_TAB_BETS,
-                    SHEETS_TAB_MATCHES, SHEETS_TAB_RESULTS, SHEETS_TAB_SUMMARY)
+                    SHEETS_TAB_CONTEXT, SHEETS_TAB_MATCHES, SHEETS_TAB_RESULTS,
+                    SHEETS_TAB_SUMMARY)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
@@ -60,6 +61,9 @@ RESULTS_HEADERS = ["match_date", "home_team", "away_team",
 MATCHES_HEADERS = ["match_date", "home_team", "away_team",
                    "p_home", "p_draw", "p_away", "created_at"]
 SUMMARY_HEADERS = ["metric", "value"]
+# LLM context-nudge cache. One row per fixture; key is "match_date|home|away".
+# nudge is a JSON blob ({"1","X","2"}); fetched_at gates the TTL refresh.
+CONTEXT_HEADERS = ["key", "nudge", "summary", "source", "confidence", "fetched_at"]
 
 BET_KEY_COLS = ("match_date", "home_team", "away_team", "market", "selection")
 MATCH_KEY_COLS = ("match_date", "home_team", "away_team")
@@ -225,6 +229,7 @@ def init_db():
     _ws(SHEETS_TAB_RESULTS, RESULTS_HEADERS)
     _ws(SHEETS_TAB_MATCHES, MATCHES_HEADERS)
     _ws(SHEETS_TAB_SUMMARY, SUMMARY_HEADERS)
+    _ws(SHEETS_TAB_CONTEXT, CONTEXT_HEADERS)
     return SHEET_ID
 
 
@@ -486,13 +491,56 @@ def _write_summary(s):
               value_input_option="RAW")
 
 
+# --- Public: LLM context-nudge cache ----------------------------------------
+
+def context_key(match_date, home, away):
+    """Stable cache key for a fixture's context nudge."""
+    return f"{str(match_date).strip()}|{str(home).strip()}|{str(away).strip()}"
+
+
+def fetch_context(key):
+    """Return the cached context row for `key` as a dict (nudge parsed from
+    JSON), or None if absent. Short TTL read-through cache like the others."""
+    cached = _cache_get("context")
+    if cached is None:
+        _, vals = _values(SHEETS_TAB_CONTEXT, CONTEXT_HEADERS)
+        cached = {d["key"]: d for d in _dicts(vals) if d.get("key")}
+        _cache_put("context", cached)
+    row = cached.get(key)
+    if not row:
+        return None
+    out = dict(row)
+    try:
+        out["nudge"] = json.loads(row.get("nudge") or "{}")
+    except (ValueError, TypeError):
+        out["nudge"] = {}
+    return out
+
+
+def upsert_context(key, nudge, summary, source, confidence, fetched_at):
+    """Insert or update one context-cache row (keyed by `key`). nudge is a
+    {"1","X","2"} dict, stored as JSON. Returns the key written."""
+    ws, vals = _values(SHEETS_TAB_CONTEXT, CONTEXT_HEADERS)
+    row = [_cell(key), json.dumps(nudge or {}), _cell(summary),
+           _cell(source), _cell(confidence), _cell(fetched_at)]
+    for i, d in enumerate(_dicts(vals), start=2):  # row 1 is the header
+        if str(d.get("key", "")).strip() == key:
+            ws.update(range_name=f"A{i}:{_col_a1(len(CONTEXT_HEADERS))}{i}",
+                      values=[row], value_input_option="RAW")
+            _cache_clear()
+            return key
+    ws.append_rows([row], value_input_option="RAW")
+    _cache_clear()
+    return key
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "summary"
     if cmd == "status":
         print(status())
     elif cmd == "init":
         init_db()
-        print(f"Ensured Bets/Results/Matches/Summary tabs in sheet {SHEET_ID}")
+        print(f"Ensured Bets/Results/Matches/Summary/Context tabs in sheet {SHEET_ID}")
     elif cmd == "summary":
         s = summary()
         print(f"Settled: {s['settled']}  W:{s['wins']} L:{s['losses']}  "

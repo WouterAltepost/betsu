@@ -30,7 +30,8 @@ import sys
 from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS
+from config import (MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS,
+                    LLM_ENABLED)
 from tools import elo as elo_mod
 from tools import ensemble as ensemble_mod
 from tools import poisson as poisson_mod
@@ -85,6 +86,8 @@ def run_morning(run_date, dry_run=False, window_hours=None):
         # both layers (and the goal-based markets) for this match.
         unseeded = [t for t in (home, away) if not elo_mod.is_seeded(t, ratings)]
         poisson_mkts = None
+        llm_adjust = None
+        context_note = None
         if unseeded:
             print(f"  [elo/poisson skipped — no seed for: {', '.join(unseeded)}]")
         else:
@@ -92,7 +95,22 @@ def run_morning(run_date, dry_run=False, window_hours=None):
             poisson_mkts = poisson_mod.markets(home, away, ratings, neutral=neutral)
             preds["poisson"] = poisson_mkts["1x2"]
 
-        blended = ensemble_mod.blend(preds)
+            # LLM context nudge (1X2 only): same seeded gate as Elo/Poisson, and
+            # only when explicitly enabled. The layer is fail-safe — a failure
+            # returns a zero nudge, so the blend is unaffected.
+            if LLM_ENABLED:
+                from tools import llm_context as llm_mod
+                ctx = llm_mod.get_adjustment(home, away, m.get("commence_time", ""))
+                if any(v for v in ctx["nudge"].values()):
+                    llm_adjust = ctx["nudge"]
+                    src = (ctx.get("factors") or [{}])[0].get("source", "") \
+                        or ctx.get("source", "")
+                    context_note = ctx.get("summary") or "Context nudge applied."
+                    if src:
+                        context_note = f"{context_note} ({src})"
+                    print(f"  [llm context: {ctx['nudge']} — {ctx.get('summary','')}]")
+
+        blended = ensemble_mod.blend(preds, llm_adjust=llm_adjust)
         match_rows.append((m_date, home, away, blended))
 
         # 1X2 value from the blended probabilities.
@@ -108,6 +126,8 @@ def run_morning(run_date, dry_run=False, window_hours=None):
 
         for b in bets:
             b["commence_time"] = m.get("commence_time", "")
+            if context_note:
+                b["context_note"] = context_note
         candidates.extend(bets)
         print(f"  {home} vs {away}: blend={blended} -> {len(bets)} value bet(s)")
 

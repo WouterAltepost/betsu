@@ -76,13 +76,31 @@ SHEETS_TAB_BETS = "Bets"
 SHEETS_TAB_RESULTS = "Results"
 SHEETS_TAB_MATCHES = "Matches"
 SHEETS_TAB_SUMMARY = "Summary"
+SHEETS_TAB_CONTEXT = "Context"   # LLM nudge cache (see tools/llm_context.py)
 # Read-through cache TTL (seconds): keeps dashboard page loads snappy and stays
 # under the Sheets read quota. Writes invalidate it immediately, so a run always
 # reads its own fresh writes.
 SHEETS_CACHE_TTL = int(os.environ.get("SHEETS_CACHE_TTL", "5"))
 
-# --- LLM --------------------------------------------------------------------
+# --- LLM context nudge ------------------------------------------------------
+# The fourth ensemble layer: a Claude-driven, web-search-grounded ADJUSTMENT to
+# the blended 1X2 probabilities for real-world context the stats can't see
+# (key injuries/suspensions, dead rubbers, extreme heat, rest/travel). It is a
+# nudge, not a base model, and is off unless LLM_ENABLED=1 — runs without it are
+# byte-for-byte unchanged. See tools/llm_context.py.
 LLM_MODEL = "claude-sonnet-4-6"
+LLM_ENABLED = os.environ.get("LLM_ENABLED", "0").strip() in ("1", "true", "True")
+# Each nudge component is clamped in code to [-MAX_LLM_NUDGE, +MAX_LLM_NUDGE];
+# the model's own magnitudes are never trusted.
+MAX_LLM_NUDGE = 0.08
+# Reuse a cached adjustment per (match_date, home, away) for this many hours so
+# the second daily run is served from cache (context changes slowly).
+LLM_CACHE_HOURS = 12
+# Anthropic server-side web search tool. Grounds every acted-on factor in a
+# recent, cited source; bump the version here if the API rev changes.
+LLM_WEB_SEARCH_TOOL = "web_search_20260209"
+LLM_MAX_WEB_SEARCHES = 5      # cap searches per fixture lookup (cost control)
+LLM_TIMEOUT_SECONDS = 90      # hard ceiling on a single get_adjustment call
 
 # --- Telegram ---------------------------------------------------------------
 TELEGRAM_API_BASE = "https://api.telegram.org"

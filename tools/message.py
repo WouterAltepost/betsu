@@ -8,13 +8,16 @@ LABEL = {"1": "Home win", "X": "Draw", "2": "Away win"}
 
 def _fmt_bet(b, i):
     sel = b.get("selection_label") or LABEL.get(b["selection"], b["selection"])
-    return (
-        f"<b>{i}. {b['home_team']} vs {b['away_team']}</b>\n"
-        f"   Pick: <b>{sel}</b>  @ <b>{b['odds']:.2f}</b>\n"
+    lines = [
+        f"<b>{i}. {b['home_team']} vs {b['away_team']}</b>",
+        f"   Pick: <b>{sel}</b>  @ <b>{b['odds']:.2f}</b>",
         f"   Model {b['model_prob']*100:.0f}% vs market {b['implied_prob']*100:.0f}%  "
-        f"→ edge <b>{b['edge']*100:+.1f}%</b>\n"
-        f"   Stake: {b['stake_units']:.0f}u (¼-Kelly guide {b['kelly_units']:.2f})"
-    )
+        f"→ edge <b>{b['edge']*100:+.1f}%</b>",
+        f"   Stake: {b['stake_units']:.0f}u (¼-Kelly guide {b['kelly_units']:.2f})",
+    ]
+    if b.get("context_note"):
+        lines.append(f"   <i>Context: {b['context_note']}</i>")
+    return "\n".join(lines)
 
 
 def build_daily_card(run_date, bets, n_matches, record=None):
