@@ -58,10 +58,14 @@ OU_LINE = 2.5                    # the Over/Under line we model + price
 # --- Odds API ---------------------------------------------------------------
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 ODDS_REGION = "eu"            # eu/uk/us — eu gives decimal odds & good coverage
-ODDS_MARKETS = "h2h,totals,btts"   # 1X2 + Over/Under + both-teams-to-score.
-# Cost note: the-odds-api bills 1 credit per market per region, so this is
-# 3 credits/call (one call/day). totals/btts coverage varies by book; the
-# fetch degrades gracefully to whatever markets a match actually offers.
+ODDS_MARKETS = "h2h,totals"   # 1X2 + Over/Under 2.5.
+# the-odds-api's bulk /odds endpoint only serves FEATURED markets
+# (h2h, spreads, totals). "btts" is an ADDITIONAL market available only on the
+# per-event /events/{id}/odds endpoint, so requesting it here 422s the whole
+# call. BTTS value bets are therefore parked until we add per-event fetching;
+# Poisson still computes BTTS probabilities, there's just no book price to value
+# them against yet, and the fetch degrades gracefully (btts_odds = None).
+# Cost: the-odds-api bills 1 credit per market per region = 2 credits/call.
 ODDS_SPORT_WORLDCUP = "soccer_fifa_world_cup"
 # Pre-tournament we also test on friendlies / other live soccer.
 
