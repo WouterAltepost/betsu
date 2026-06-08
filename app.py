@@ -23,6 +23,7 @@ Run:
 
 import hashlib
 import hmac
+import mimetypes
 import os
 import sys
 from datetime import date, datetime, timezone
@@ -36,6 +37,9 @@ from config import SCAN_WINDOW_HOURS
 from tools import tracker as tracker_mod
 
 app = Flask(__name__)
+
+# Serve .webmanifest with the right type (some setups default to octet-stream).
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 RUN_API_KEY = os.environ.get("RUN_API_KEY", "").strip()
 DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "")
@@ -238,6 +242,33 @@ def api_bets_update():
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "static", "dashboard")
+
+# --- Mobile PWA (installable at /m) ------------------------------------------
+# A second, mobile-first surface that reads/writes the same Sheets data through
+# the same /api/* endpoints as the desktop dashboard. Additive and isolated: it
+# adds no new API endpoints, spends zero Odds-API credits, and never touches the
+# run path. Asset references in index.html are root-absolute under /m/, so /m
+# (no trailing slash) loads everything correctly. See docs/mobile_pwa_briefing.md.
+
+MOBILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "static", "mobile")
+
+
+@app.route("/m")
+@require_dashboard_auth
+def mobile_index():
+    """Serve the mobile PWA shell (installable at /m)."""
+    return send_from_directory(MOBILE_DIR, "index.html")
+
+
+@app.route("/m/<path:filename>")
+@require_dashboard_auth
+def mobile_asset(filename):
+    """Serve the mobile app's static assets (jsx, manifest, icons, vendored libs,
+    design system). These specific rules win over the dashboard catch-all below,
+    so /m/store.jsx resolves to the mobile copy. send_from_directory blocks path
+    traversal; a miss 404s."""
+    return send_from_directory(MOBILE_DIR, filename)
 
 
 @app.route("/")
