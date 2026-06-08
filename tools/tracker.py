@@ -54,10 +54,15 @@ SHEET_ID = os.environ.get("GOOGLE_SHEETS_ID", "").strip()
 
 # Column order for each tab. The store round-trips everything as text (see _cell)
 # so dates never get coerced to date serials; types are restored on read.
+# `staked_real` is the user's real € stake. `result` is the auto-graded outcome
+# (model track). The last three columns are user-owned, appended after created_at
+# so existing column positions never shift: `placed` (the user ticked they backed
+# it), `manual_result` (a hand settle that overrides `result` and is never
+# clobbered by grading), and `pnl_eur` (real-money P&L on a settled placed bet).
 BETS_HEADERS = ["match_date", "commence_time", "home_team", "away_team", "market",
                 "selection", "selection_label", "model_prob", "implied_prob", "odds",
                 "edge", "stake_units", "kelly_units", "staked_real", "result",
-                "pnl_units", "created_at"]
+                "pnl_units", "created_at", "placed", "manual_result", "pnl_eur"]
 RESULTS_HEADERS = ["match_date", "home_team", "away_team",
                    "home_score", "away_score", "outcome"]
 MATCHES_HEADERS = ["match_date", "home_team", "away_team",
@@ -75,7 +80,7 @@ RESULT_KEY_COLS = ("match_date", "home_team", "away_team")
 
 # Columns restored to float on read; everything else stays string.
 _FLOAT_BET_COLS = {"model_prob", "implied_prob", "odds", "edge",
-                   "stake_units", "kelly_units", "pnl_units"}
+                   "stake_units", "kelly_units", "pnl_units", "pnl_eur"}
 
 
 # --- Sheets connection (lazy, cached per process) ---------------------------
@@ -215,7 +220,21 @@ def _typed_bet(d):
         b[k] = _to_float(d.get(k))
     b["staked_real"] = _to_int(d.get("staked_real")) or 0
     b["result"] = d.get("result") or "pending"
+    b["placed"] = (d.get("placed") or "").strip()
+    b["manual_result"] = (d.get("manual_result") or "").strip()
     return b
+
+
+def effective_result(bet):
+    """The settled outcome to read everywhere: a user's manual settle overrides
+    the auto-graded `result`; absent both, the bet is still pending. Accepts a
+    raw or typed bet dict. Returns "win" / "loss" / "pending" (or any other
+    manual value, kept verbatim)."""
+    mr = (bet.get("manual_result") or "").strip()
+    if mr:
+        return mr
+    r = (bet.get("result") or "").strip()
+    return r or "pending"
 
 
 def _typed_result(d):
@@ -315,6 +334,10 @@ def _bet_row(b):
         "result": b.get("result") or "pending",
         "pnl_units": b.get("pnl_units"),
         "created_at": b.get("created_at") or now,
+        # User-owned fields: a freshly-suggested bet is not placed and unsettled.
+        "placed": b.get("placed") or "",
+        "manual_result": b.get("manual_result") or "",
+        "pnl_eur": b.get("pnl_eur") if b.get("pnl_eur") not in (None, "") else "",
     }
     return [_cell(src[h]) for h in BETS_HEADERS]
 
@@ -348,6 +371,56 @@ def record_bets(bets):
 def record_bet(bet):
     """Append a single value bet (dedup-safe). Returns True if it was new."""
     return bool(record_bets([bet]))
+
+
+def _pnl_eur(d):
+    """Real-money P&L for a row dict (string-valued). Returns a string for the
+    cell: a euro figure when the bet is placed, settled (by effective result),
+    and has a positive stake; "" otherwise (unplaced/unsettled = model-track only).
+    """
+    if (d.get("placed") or "").strip() != "1":
+        return ""
+    eff = effective_result(d)
+    if eff not in ("win", "loss"):
+        return ""
+    staked = _to_int(d.get("staked_real")) or 0
+    odds = _to_float(d.get("odds")) or 0.0
+    if staked <= 0:
+        return ""
+    pnl = staked * (odds - 1) if eff == "win" else -staked
+    return str(round(pnl, 2))
+
+
+def update_bet_user_fields(key, placed=None, stake_eur=None, manual_result=None):
+    """Update only the user-owned fields of one bet row — placed / staked_real /
+    manual_result — and recompute pnl_eur. `key` is the BET_KEY_COLS tuple (or a
+    dict carrying those fields). Only the passed arguments are changed; the rest of
+    the row (including created_at and the model track) is preserved verbatim.
+    Returns the updated typed bet, or False if the key isn't found."""
+    if isinstance(key, dict):
+        ktuple = tuple(str(key.get(c, "")).strip() for c in BET_KEY_COLS)
+    else:
+        ktuple = tuple(str(x).strip() for x in key)
+
+    ws, vals = _values(SHEETS_TAB_BETS, BETS_HEADERS)
+    for i, d in enumerate(_dicts(vals), start=2):  # row 1 is the header
+        if _key(d, BET_KEY_COLS) != ktuple:
+            continue
+        d2 = dict(d)
+        if placed is not None:
+            d2["placed"] = "1" if placed else ""
+        if stake_eur is not None:
+            d2["staked_real"] = str(int(stake_eur))
+        if manual_result is not None:
+            mr = (manual_result or "").strip().lower()
+            d2["manual_result"] = mr if mr in ("win", "loss") else ""
+        d2["pnl_eur"] = _pnl_eur(d2)
+        row = [_cell(d2.get(h, "")) for h in BETS_HEADERS]
+        ws.update(range_name=f"A{i}:{_col_a1(len(BETS_HEADERS))}{i}",
+                  values=[row], value_input_option="RAW")
+        _cache_clear()
+        return _typed_bet(d2)
+    return False
 
 
 # --- Public: matches (calibration) ------------------------------------------
@@ -434,11 +507,20 @@ def _bet_won(bet, res):
 
 def grade_pending():
     """Settle pending bets against recorded results, updating the Bets rows in
-    place (one batched cell update). Returns the count settled."""
+    place (one batched cell update). Returns the count settled.
+
+    Two tracks settle here:
+      - model/paper track: the `result` + `pnl_units` columns, over every bet, so
+        calibration and the units benchmark stay complete.
+      - real-money track: `pnl_eur`, only for bets the user marked `placed`.
+    A user's `manual_result` is the authoritative outcome and is never written or
+    overwritten by grading — it only steers the real-money math (via
+    effective_result) when present."""
     ws, vals = _values(SHEETS_TAB_BETS, BETS_HEADERS)
     head = vals[0]
     res_col = head.index("result") + 1      # 1-based for A1
     pnl_col = head.index("pnl_units") + 1
+    eur_col = head.index("pnl_eur") + 1
 
     _, rvals = _values(SHEETS_TAB_RESULTS, RESULTS_HEADERS)
     rmap = {_key(d, RESULT_KEY_COLS): _typed_result(d) for d in _dicts(rvals)}
@@ -462,6 +544,15 @@ def grade_pending():
         rng = f"{_col_a1(res_col)}{i}:{_col_a1(pnl_col)}{i}"
         updates.append({"range": rng,
                         "values": [["win" if won else "loss", str(round(pnl, 3))]]})
+        # Real-money P&L for a placed bet. effective_result lets a pre-set manual
+        # override decide the outcome here; the auto result we just computed is the
+        # fallback. Recompute on a copy carrying the freshly-settled result.
+        d2 = dict(d)
+        d2["result"] = "win" if won else "loss"
+        eur = _pnl_eur(d2)
+        if eur != "":
+            updates.append({"range": f"{_col_a1(eur_col)}{i}",
+                            "values": [[eur]]})
         settled += 1
 
     if updates:
@@ -473,9 +564,14 @@ def grade_pending():
 # --- Public: summary --------------------------------------------------------
 
 def summary(write=False):
-    """Running record + ROI computed from the Bets tab. When write=True, also
-    refresh the Summary tab for at-a-glance viewing in the sheet."""
+    """Running record + ROI from the Bets tab. Two tracks:
+      - top-level keys: the MODEL/paper track (units) over every suggestion —
+        what betsu is judged on (calibration + ROI vs the line).
+      - the "real" block: the user's REAL-MONEY track (€) over only the bets they
+        placed, settled by effective_result. This is the dashboard headline.
+    When write=True, also refresh the Summary tab for at-a-glance viewing."""
     bets = fetch_bets()
+    # --- model / paper track (units, all suggestions) ---
     wins = sum(1 for b in bets if b["result"] == "win")
     losses = sum(1 for b in bets if b["result"] == "loss")
     pending = sum(1 for b in bets if b["result"] not in ("win", "loss", "void"))
@@ -489,17 +585,64 @@ def summary(write=False):
         "settled": total_settled, "wins": wins, "losses": losses,
         "pending": pending, "hit_rate": round(hit, 1),
         "pnl_units": round(total_pnl, 2), "roi_pct": round(roi, 1),
+        "real": _real_summary(bets),
     }
     if write:
         _write_summary(s)
     return s
 
 
+def _real_summary(bets):
+    """Real-money (€) record over PLACED bets only, settled by effective_result."""
+    placed = [b for b in bets if (b.get("placed") or "").strip() == "1"]
+    settled, wins, losses = [], 0, 0
+    pnl_eur = staked_settled = 0.0
+    open_exposure = staked_total = 0.0
+    for b in placed:
+        stake = b.get("staked_real") or 0
+        staked_total += stake
+        eff = effective_result(b)
+        if eff in ("win", "loss"):
+            settled.append(b)
+            staked_settled += stake
+            odds = b.get("odds") or 0.0
+            if eff == "win":
+                wins += 1
+                pnl_eur += stake * (odds - 1)
+            else:
+                losses += 1
+                pnl_eur -= stake
+        else:
+            open_exposure += stake
+    n_settled = wins + losses
+    roi = (pnl_eur / staked_settled * 100) if staked_settled else 0.0
+    hit = (wins / n_settled * 100) if n_settled else 0.0
+    avg_edge = (sum((b.get("edge") or 0.0) for b in placed) / len(placed) * 100
+                if placed else 0.0)
+    return {
+        "placed": len(placed), "staked_eur": round(staked_total, 2),
+        "open_exposure_eur": round(open_exposure, 2), "settled": n_settled,
+        "wins": wins, "losses": losses, "pnl_eur": round(pnl_eur, 2),
+        "roi_eur_pct": round(roi, 1), "hit_rate": round(hit, 1),
+        "avg_edge_pct": round(avg_edge, 1), "pending": len(placed) - n_settled,
+    }
+
+
 def _write_summary(s):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    r = s.get("real", {})
     rows = [
         SUMMARY_HEADERS,
         ["last_updated", now],
+        # real-money track (placed bets, €) — the headline
+        ["real_placed", r.get("placed", 0)],
+        ["real_settled", r.get("settled", 0)],
+        ["real_wins", r.get("wins", 0)],
+        ["real_losses", r.get("losses", 0)],
+        ["real_pnl_eur", r.get("pnl_eur", 0)],
+        ["real_roi_pct", r.get("roi_eur_pct", 0)],
+        ["real_open_exposure_eur", r.get("open_exposure_eur", 0)],
+        # model / paper track (all suggestions, units) — what betsu is judged on
         ["settled", s["settled"]],
         ["wins", s["wins"]],
         ["losses", s["losses"]],
