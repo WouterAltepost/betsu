@@ -1,0 +1,7 @@
+/* betsu — webfonts
+ * Display: Bricolage Grotesque (warm, editorial grotesque)
+ * Body/UI: Inter (workhorse, excellent tabular figures)
+ * Numbers use Inter with tabular-nums — no separate mono family.
+ * Served from Google Fonts CDN. To fully self-host, download the .woff2 files
+ * and replace this @import with local @font-face rules. */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap');

@@ -1,0 +1,87 @@
+/* betsu — color tokens
+ * Light-primary, warm. Brand = gold→orange gradient from the logo mark.
+ * Win/loss greens & reds are tuned slightly warm so they sit beside the gold
+ * without clashing. Loss-red is kept distinctly red so it never reads as accent. */
+:root {
+  /* ---- Brand: gold → orange (the logo gradient) ---- */
+  --gold-100: #FFF3D6;
+  --gold-200: #FFE6A8;
+  --gold-300: #FFD970;  /* logo light stop */
+  --gold-400: #FCB949;
+  --gold-500: #F7941E;  /* primary brand */
+  --gold-600: #E07E0C;
+  --gold-700: #B86609;
+
+  --orange-300: #FFB585;
+  --orange-400: #FF914D;  /* the two dots — secondary accent */
+  --orange-500: #F7941D;
+  --orange-600: #E2761A;
+
+  /* ---- Warm neutrals ---- */
+  --white:    #FFFFFF;
+  --warm-50:  #FBF9F6;  /* page background */
+  --warm-100: #F5F1EA;  /* subtle surface / fills */
+  --warm-150: #EDE7DD;  /* hairline borders */
+  --warm-200: #E3DBCF;  /* default borders */
+  --warm-300: #D0C6B8;  /* strong borders */
+  --warm-400: #A99E8E;
+  --warm-500: #847A6D;  /* muted text */
+  --warm-600: #635A4F;  /* secondary text */
+  --warm-700: #463F37;
+  --warm-800: #2B2620;
+  --warm-900: #1A1611;  /* primary text / ink */
+
+  /* ---- Semantic: results ---- */
+  --green-50:  #E8F4EC;
+  --green-500: #1F9D63;  /* win */
+  --green-600: #178053;
+  --red-50:    #FBEAE6;
+  --red-500:   #D93F2D;  /* loss — kept clearly red, not orange */
+  --red-600:   #B82F22;
+  --amber-50:  #FBF1DD;
+  --amber-500: #D98A1A;  /* pending */
+  --amber-600: #B26F12;
+
+  /* ---- Signature gradients ---- */
+  --brand-gradient: linear-gradient(155deg, #FFD970 0%, #F7941E 100%); /* @kind color */
+  --brand-gradient-soft: linear-gradient(155deg, #FFF3D6 0%, #FFE0B0 100%); /* @kind color */
+  --orange-gradient: linear-gradient(155deg, #FF914D 0%, #F7941D 100%); /* @kind color */
+
+  /* ================= Semantic aliases ================= */
+  /* Surfaces */
+  --bg-page:       var(--warm-50);
+  --bg-surface:    var(--white);
+  --bg-subtle:     var(--warm-100);
+  --bg-inset:      var(--warm-100);
+  --bg-hover:      var(--warm-100);
+
+  /* Borders */
+  --border-subtle: var(--warm-150);
+  --border:        var(--warm-200);
+  --border-strong: var(--warm-300);
+
+  /* Text */
+  --text-primary:   var(--warm-900);
+  --text-secondary: var(--warm-600);
+  --text-muted:     var(--warm-500);
+  --text-inverse:   var(--white);
+
+  /* Accent / brand */
+  --accent:        var(--gold-500);
+  --accent-hover:  var(--gold-600);
+  --accent-press:  var(--gold-700);
+  --accent-fg:     var(--warm-900);   /* dark ink on gold — the betsu look */
+  --accent-subtle: var(--gold-100);
+  --accent-2:      var(--orange-400); /* secondary orange */
+  --focus-ring:    rgba(247, 148, 30, 0.40);
+
+  /* Results / data semantics */
+  --win:        var(--green-500);
+  --win-bg:     var(--green-50);
+  --loss:       var(--red-500);
+  --loss-bg:    var(--red-50);
+  --pending:    var(--amber-500);
+  --pending-bg: var(--amber-50);
+  --edge-pos:   var(--green-600);
+  --edge-neg:   var(--warm-500);
+}

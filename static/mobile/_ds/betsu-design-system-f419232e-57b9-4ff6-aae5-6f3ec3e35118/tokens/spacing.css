@@ -1,0 +1,46 @@
+/* betsu — spacing, radii, shadows, borders, motion */
+:root {
+  /* Spacing scale (4px base) */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* Radii — rounded, friendly, echoing the disc mark */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+
+  /* Borders */
+  --border-width: 1px;
+  --border-width-strong: 1.5px;
+
+  /* Shadows — warm-tinted, soft (ink = warm-900) */
+  --shadow-xs: 0 1px 2px rgba(26, 22, 17, 0.04);
+  --shadow-sm: 0 1px 3px rgba(26, 22, 17, 0.06), 0 1px 2px rgba(26, 22, 17, 0.04);
+  --shadow-md: 0 4px 14px rgba(26, 22, 17, 0.08);
+  --shadow-lg: 0 14px 36px rgba(26, 22, 17, 0.10);
+  --shadow-xl: 0 24px 60px rgba(26, 22, 17, 0.14);
+  /* Brand glow for primary CTAs / highlighted cards */
+  --shadow-gold: 0 8px 24px rgba(247, 148, 30, 0.28);
+
+  /* Motion — quiet, confident; no bounces */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */
+  --dur-base: 200ms; /* @kind other */
+  --dur-slow: 320ms; /* @kind other */
+}
