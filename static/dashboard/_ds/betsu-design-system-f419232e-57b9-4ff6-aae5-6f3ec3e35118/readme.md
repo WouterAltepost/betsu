@@ -8,8 +8,11 @@ and ROI tracking.
 
 It is honest by design: the goal is not raw hit-rate (favourites win a lot and
 still lose money) but **calibration + positive ROI** versus the closing line.
-Bets are **paper-traded by default**; real money only when the user decides a bet
-makes sense.
+Two tracks, kept distinct: a **model track** (flat 1-unit paper stakes over every
+suggestion) is the benchmark betsu is judged on; separately, the user records the
+bets they **actually placed** and the **€ stake** on each, and that real-money
+P&L is the dashboard headline. User-facing surfaces speak in euros on placed bets;
+the units track stays internal as the model benchmark.
 
 > "No public model reliably beats the closing line. Judge betsu on calibration
 > and ROI over the tournament, not on any single day."
@@ -20,9 +23,11 @@ makes sense.
 
 A morning run produces a ranked list of value bets — each with a model
 probability, the market's implied probability, the resulting **edge**, the odds,
-and a quarter-Kelly sizing guide. That card goes to Telegram. As results land,
-bets are graded win/loss, P&L accrues in units, and the dashboard shows the
-running record, hit rate, P&L curve, ROI, and pending count.
+and a **€ quarter-Kelly** stake guide. That card goes to Telegram. The user ticks
+which suggestions they placed and the € stake; as results land, bets grade
+win/loss (a manual settle overrides the auto grade), real-€ P&L accrues on placed
+bets, and the dashboard shows the money headline plus the model's calibration and
+paper ROI over all suggestions.
 
 **The ensemble (the "predictor"), one blended probability per match:**
 - **market** — de-vigged bookmaker odds. Strongest single signal; also the benchmark.
@@ -31,16 +36,20 @@ running record, hit rate, P&L curve, ROI, and pending count.
 - **llm** — Claude news/context nudge (injuries, dead rubbers, heat) — an adjustment, not a base model.
 
 **Value rule:** `edge = model_prob × decimal_odds − 1`. Suggest selections with
-`edge ≥ MIN_EDGE` (default 5%), capped per day, ranked by edge. Flat 1-unit paper
-stake; a quarter-Kelly figure shown as a real-money sizing guide.
+`edge ≥ MIN_EDGE` (default 5%), capped per day, ranked by edge. The model track
+stakes a flat 1 unit per suggestion (paper benchmark); user-facing surfaces show
+a **€ quarter-Kelly** guide off `BANKROLL_EUR`.
 
 ---
 
 ## Surfaces (what this system designs for)
 
-1. **Performance dashboard** (web) — the home view. Stat tiles (record, hit
-   rate, P&L units, ROI, pending), a cumulative P&L curve, and a bets table
-   (date · match · market · pick · odds · model% · edge · result · P&L).
+1. **Performance dashboard** (web) — the home view, split into two clearly
+   labelled tracks. **Your money:** a real-€ net-profit hero, stat tiles (net
+   profit, ROI, record, hit rate, staked, pending), a cumulative € P&L curve,
+   ROI by market, and the table of bets you placed (tick placed · set € stake ·
+   settle). **Model (all suggestions, paper):** calibration + paper ROI over every
+   suggestion — the benchmark, kept distinct from the money you put down.
 2. **Telegram bet card** (messaging) — the daily ranked card and the results
    recap, as they appear in a Telegram chat bubble.
 
@@ -74,30 +83,32 @@ respects the maths and refuses to oversell. It never hypes a bet.
 - **Brand name is always lowercase: `betsu`.** Even at the start of a sentence
   and in titles. (The wordmark, the dashboard `<h1>`, the Telegram header — all lowercase.)
 - **Voice & person:** mostly impersonal/declarative ("4 matches scanned",
-  "Sitting out"); addresses the user as **you** when it matters ("Paper unless
-  **you** choose to back it"). Avoids "I". No marketing "we" chest-thumping.
+  "Sitting out"); addresses the user as **you** when it matters ("the bets
+  **you** placed", "bet what **you** choose"). Avoids "I". No marketing "we".
 - **Tone:** measured, numerate, faintly wry. Comfortable saying it has **no
   edge today** and sitting out. Honesty over bravado — it grades itself in public.
 - **Casing:** sentence case for everything except UPPERCASE micro-labels on
   stat tiles ("HIT RATE", "ROI", "PENDING"). No Title Case headlines.
 - **Numbers are the content.** Odds to 2 decimals (`1.95`), probabilities as
-  whole percents (`62%`), edge always **signed** (`+20.9%`), P&L in **units**
-  with a sign (`+1.8u`), ROI signed (`+18.0%`). Signs carry meaning — keep them.
+  whole percents (`62%`), edge always **signed** (`+20.9%`), ROI signed
+  (`+18.0%`). User-facing P&L is in **euros** with a sign (`+€42`); the internal
+  model track is in **units** (`+1.8u`). Signs carry meaning — keep them.
 - **Vocabulary:** value bet · edge · model probability · implied / market
-  probability · de-vig · closing line · unit (u) · quarter-Kelly · calibration ·
-  ROI · pick · selection · 1X2 · Over/Under 2.5 · BTTS · paper / real.
+  probability · de-vig · closing line · € stake · placed · bankroll ·
+  quarter-Kelly · calibration · ROI · pick · selection · 1X2 · Over/Under 2.5 ·
+  BTTS · your money (real €) / model (paper units).
 - **Responsible-gambling footer is non-negotiable** on any bet output:
-  *"Paper unless you choose to back it. Bet responsibly."*
+  *"Stakes are a ¼-Kelly guide — bet what you choose. Bet responsibly."*
 - **Emoji:** used **sparingly and only in Telegram**, as section markers, never
   decoration: ⚽ (card header), 📊 (running record), 📋 (results recap). The web
   dashboard is emoji-light. Do **not** sprinkle emoji through the UI.
 
 **Copy examples (verbatim from the product):**
 - Card header: `⚽ betsu — 2026-06-11` · `4 match(es) scanned · 2 value bet(s)`
-- A pick line: `Pick: Home (Argentina) @ 1.95` / `Model 62% vs market 51% → edge +20.9%` / `Stake: 1u (¼-Kelly guide 0.05)`
+- A pick line: `Pick: Home (Argentina) @ 1.95` / `Model 62% vs market 51% → edge +20.9%` / `Stake guide: €50 (¼-Kelly)`
 - No-bet day: `No value bets clear the edge threshold today. Sitting out.`
-- Running line: `📊 Running: 6-4 (60%) · +1.8u · ROI +18.0%`
-- Dashboard subtitle: `Paper-traded unless flagged real. Source: Google Sheets`
+- Running line (your money): `📊 Running (your money): 4-3 (57%) · +42€ · ROI +11.5%`
+- Dashboard subtitle: `Your real € P&L on the bets you placed, plus how betsu's model is calibrating over every suggestion.`
 - Empty state: `No bets recorded yet. Run a morning card first.`
 
 ---

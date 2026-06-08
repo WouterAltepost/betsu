@@ -26,8 +26,16 @@ ENSEMBLE_WEIGHTS = {
 # bookmaker's offered price. Edge = model_prob * decimal_odds - 1.
 MIN_EDGE = 0.05          # only suggest bets with >= 5% expected value
 MAX_BETS_PER_DAY = 8     # cap each run's message to the best N new bets
-FLAT_STAKE_UNITS = 1.0   # paper staking: 1 unit per suggested bet
-KELLY_FRACTION = 0.25    # shown as a guide for real-money sizing (quarter Kelly)
+# Two tracks (see docs/dashboard_redesign_briefing.md):
+#   model/paper track — flat 1-unit stakes, the benchmark betsu is judged on
+#                       (calibration + ROI vs the line over ALL suggestions).
+#   real-money track  — the € stakes the user actually places, tracked on the
+#                       dashboard; the morning card shows a € ¼-Kelly guide.
+FLAT_STAKE_UNITS = 1.0   # model track: 1 unit per suggested bet (paper benchmark)
+KELLY_FRACTION = 0.25    # quarter Kelly — fraction of bankroll for the sizing guide
+# Bankroll behind the € quarter-Kelly stake guide on the morning card and the
+# dashboard's suggested stake. A guide only — real stake is the user's choice.
+BANKROLL_EUR = int(os.environ.get("BANKROLL_EUR", "1000"))
 
 # --- Scan window ------------------------------------------------------------
 # The scheduled run scans fixtures kicking off within the next SCAN_WINDOW_HOURS

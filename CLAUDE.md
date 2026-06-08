@@ -15,8 +15,12 @@ flip: instead of tracking other people's bets, we build our own ensemble
 predictor and grade it honestly.
 
 **Goal:** not raw hit-rate (favorites win a lot and still lose money), but
-calibration plus positive ROI versus the closing odds. Paper-traded by default;
-real money only when the user decides a bet makes sense.
+calibration plus positive ROI versus the closing odds. Two tracks, kept distinct:
+the **model track** (flat 1-unit paper stakes over *every* suggestion) is the
+benchmark betsu is judged on; separately, the user records the bets they
+**actually placed**, the € stake on each, and settles them, and that **real-money
+€ P&L** is the dashboard headline. The model/units track is internal; user-facing
+surfaces (dashboard, Telegram card) speak in euros on placed bets.
 
 ## The ensemble (the "predictor")
 
@@ -33,8 +37,11 @@ market + elo; the other two plug in without touching the rest.
 ## Value betting
 
 `edge = model_prob * decimal_odds - 1`. We suggest selections with edge >= `MIN_EDGE`
-(default 5%), capped at `MAX_BETS_PER_DAY`, ranked by edge. Flat 1-unit paper
-stake; a quarter-Kelly figure is shown as a real-money sizing guide.
+(default 5%), capped at `MAX_BETS_PER_DAY`, ranked by edge. The model track stakes
+a flat 1 unit per suggestion (the paper benchmark); the user-facing card and
+dashboard show a **€ quarter-Kelly guide** (off `BANKROLL_EUR`). The user then
+records which bets they placed and the real € stake — see the dashboard + the
+`Bets` tab's `placed` / `staked_real` / `manual_result` / `pnl_eur` columns.
 
 ## Layers
 
@@ -43,7 +50,11 @@ stake; a quarter-Kelly figure is shown as a real-money sizing guide.
 - `elo.py` — Elo ratings + 1X2 probabilities + result-based updates
 - `ensemble.py` — blend predictor probabilities (+ optional LLM nudge)
 - `value.py` — value bets from blended probs vs odds, with Kelly guide
-- `tracker.py` — Google Sheets store: matches, bets, results, grading, ROI summary
+- `tracker.py` — Google Sheets store: matches, bets, results, grading, ROI summary.
+  Holds both tracks: the units/paper benchmark and the user's real-money fields
+  (`placed` / `staked_real` / `manual_result` / `pnl_eur`). `update_bet_user_fields`
+  writes those; `effective_result` (manual override > auto grade) is read everywhere;
+  `summary()` returns a `real` € block plus the units keys
 - `poisson.py` — Dixon-Coles goal model (1X2 + Over/Under 2.5 + BTTS)
 - `results_fetch.py` — pull finished WC scores from football-data.org, reconcile
   team names to the store, write to Results so grading settles hands-off
@@ -57,8 +68,13 @@ stake; a quarter-Kelly figure is shown as a real-money sizing guide.
 scan posts only genuinely-new bets (dedup), so it's safe to run repeatedly.
 
 **Service** (`app.py`): stateless Flask app (gunicorn on Railway). Serves the
-performance dashboard and the protected `POST /run/morning` / `POST /run/grade`
-endpoints that n8n calls on a schedule. See `docs/deploy_runbook.md`.
+React performance dashboard (vendored static files in `static/dashboard/`, libs
+vendored locally — no runtime CDN) plus a small dashboard-auth-gated JSON API
+(`GET /api/bets`, `GET /api/summary`, `POST /api/bets/update`) that reads/writes
+the placed-bet fields back to Sheets, and the protected `POST /run/morning` /
+`POST /run/grade` endpoints that n8n calls on a schedule. The dashboard/API are
+isolated and fail-safe, so they never affect the run endpoints. See
+`docs/deploy_runbook.md` and `docs/dashboard_redesign_briefing.md`.
 
 ## Running it
 
