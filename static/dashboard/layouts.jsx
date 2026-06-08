@@ -17,9 +17,12 @@ function CalNote() {
   );
 }
 
-const calSub = 'model probability vs realized hit-rate · all settled suggestions';
 const pnlSub = 'cumulative net profit · settled placed bets';
 const mktSub = 'return on stake by market · placed bets';
+
+// Below this many settled suggestions the calibration scatter is too sparse to
+// mean anything, so we show a placeholder instead of a near-empty plot.
+const MODEL_CAL_MIN = 20;
 
 // Section divider — keeps the "your money" vs "model" framing explicit.
 function SectionLabel({ kicker, title, desc }) {
@@ -44,6 +47,25 @@ function ModelStat({ label, value, sub, tone }) {
   );
 }
 
+// Shown below the threshold instead of a near-empty scatter.
+function CalPlaceholder({ settled }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 8, textAlign: 'center', minHeight: 180, padding: '24px 16px',
+      background: 'var(--bg-subtle)', border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius-md)',
+    }}>
+      <Icon name="scatter-chart" size={22} color="var(--warm-400)" />
+      <p style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-secondary)', maxWidth: 420 }}>
+        Calibration needs a larger sample to mean anything.
+      </p>
+      <p style={{ fontSize: 12.5, color: 'var(--text-muted)', maxWidth: 420 }}>
+        {settled} settled so far. This chart appears once {MODEL_CAL_MIN} bets have settled, then shows whether a "70%" call really wins about 70% of the time.
+      </p>
+    </div>
+  );
+}
+
 function ModelPerfPanel() {
   const mp = computeModelPerf();
   const tiles = [
@@ -52,13 +74,23 @@ function ModelPerfPanel() {
     { label: 'Record', value: `${mp.wins}–${mp.losses}`, sub: mp.settled ? `${mp.hit_rate}% hit` : 'none settled' },
     { label: 'Avg edge', value: `+${mp.avg_edge}%`, sub: 'at entry' },
   ];
+  const enoughForCal = mp.settled >= MODEL_CAL_MIN;
   return (
-    <Panel title="Model — all suggestions (paper)" sub="calibration & paper ROI vs the closing line, across every bet betsu flagged — not just the ones you placed" icon="activity">
+    <Panel title="How betsu's predictions are doing" sub="Every bet betsu flagged, win or lose, as if you backed them all at a flat stake. The honest scoreboard for the model, separate from what you chose to place." icon="activity">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 18 }}>
         {tiles.map((t, i) => <ModelStat key={i} {...t} />)}
       </div>
-      <CalibrationChart bins={mp.bins} height={250} />
-      <CalNote />
+      {enoughForCal ? (
+        <>
+          <CalibrationChart bins={mp.bins} height={250} />
+          <CalNote />
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
+            Calibration asks: when betsu says "70%", does that happen about 70% of the time? Points sitting on the diagonal line mean perfectly calibrated.
+          </p>
+        </>
+      ) : (
+        <CalPlaceholder settled={mp.settled} />
+      )}
     </Panel>
   );
 }
@@ -67,7 +99,7 @@ function ModelPerfPanel() {
 function LayoutEditorial({ perf }) {
   const tw = useTw();
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '26px 28px 80px' }}>
+    <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto', padding: '26px 20px 80px' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 34, fontFamily: 'var(--font-display)', fontWeight: 800, letterSpacing: '-0.02em' }}>performance</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: 4 }}>Your real € P&amp;L on the bets you placed, plus how betsu's model is calibrating over every suggestion.</p>
@@ -84,7 +116,7 @@ function LayoutEditorial({ perf }) {
         </Panel>
         <BetLog />
 
-        <SectionLabel kicker="Model" title="Calibration & paper ROI" desc="Over all suggestions, placed or not — flat 1-unit paper stakes. This is what betsu is judged on over the tournament, independent of what you chose to back." />
+        <SectionLabel kicker="Model" title="Does the strategy beat the bookmakers?" desc="Two simple questions. Does betsu make money against the book (Paper ROI), and are its probabilities honest (Calibration). Measured over every suggestion it flagged, not just the bets you placed." />
         <ModelPerfPanel />
       </div>
     </div>

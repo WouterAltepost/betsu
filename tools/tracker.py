@@ -65,8 +65,16 @@ BETS_HEADERS = ["match_date", "commence_time", "home_team", "away_team", "market
                 "pnl_units", "created_at", "placed", "manual_result", "pnl_eur"]
 RESULTS_HEADERS = ["match_date", "home_team", "away_team",
                    "home_score", "away_score", "outcome"]
+# `p_home/p_draw/p_away` are the blended 1X2 probs. The nine per-model columns
+# after `created_at` capture each predictor's raw 1X2 (market/elo/poisson) so a
+# future leaderboard can score the contenders against outcomes; they are appended
+# after created_at so existing positions never shift, and blank when a model is
+# absent for that fixture (e.g. an unseeded match drops Elo/Poisson).
 MATCHES_HEADERS = ["match_date", "home_team", "away_team",
-                   "p_home", "p_draw", "p_away", "created_at"]
+                   "p_home", "p_draw", "p_away", "created_at",
+                   "mkt_1", "mkt_X", "mkt_2",
+                   "elo_1", "elo_X", "elo_2",
+                   "poi_1", "poi_X", "poi_2"]
 SUMMARY_HEADERS = ["metric", "value"]
 # LLM context-nudge cache. One row per fixture; key is "match_date|home|away".
 # nudge is a JSON blob ({"1","X","2"}); fetched_at gates the TTL refresh.
@@ -426,21 +434,34 @@ def update_bet_user_fields(key, placed=None, stake_eur=None, manual_result=None)
 # --- Public: matches (calibration) ------------------------------------------
 
 def record_matches(rows):
-    """Append match-level blended probs (dedup-safe). rows: iterable of
-    (match_date, home, away, probs{"1","X","2"}). Returns count written."""
+    """Append match-level probs (dedup-safe). rows: iterable of
+    (match_date, home, away, probs{"1","X","2"}[, preds]) where the optional
+    `preds` is {"market": {"1","X","2"}, "elo": {...}, "poisson": {...}} carrying
+    each predictor's raw 1X2. `preds` is fail-safe: it may be omitted, None, or
+    missing any model; an absent model writes blanks for its three columns and
+    never raises. Returns count written."""
     _, vals = _values(SHEETS_TAB_MATCHES, MATCHES_HEADERS)
     existing = {_key(d, MATCH_KEY_COLS) for d in _dicts(vals)}
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     new_rows, seen = [], set()
-    for match_date, home, away, probs in rows:
+    for row in rows:
+        match_date, home, away, probs = row[0], row[1], row[2], row[3]
+        preds = row[4] if len(row) > 4 else None
         k = (str(match_date).strip(), str(home).strip(), str(away).strip())
         if k in existing or k in seen:
             continue
         seen.add(k)
         probs = probs or {}
+        preds = preds or {}
+
+        def _trio(model):
+            p = preds.get(model) or {}
+            return [_cell(p.get("1")), _cell(p.get("X")), _cell(p.get("2"))]
+
         new_rows.append([_cell(match_date), _cell(home), _cell(away),
                          _cell(probs.get("1")), _cell(probs.get("X")),
-                         _cell(probs.get("2")), now])
+                         _cell(probs.get("2")), now]
+                        + _trio("market") + _trio("elo") + _trio("poisson"))
     if new_rows:
         _ws(SHEETS_TAB_MATCHES, MATCHES_HEADERS).append_rows(
             new_rows, value_input_option="RAW")

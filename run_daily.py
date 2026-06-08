@@ -145,7 +145,10 @@ def run_morning(run_date, dry_run=False, window_hours=None):
                     print(f"  [llm context: {ctx['nudge']} — {ctx.get('summary','')}]")
 
         blended = ensemble_mod.blend(preds, llm_adjust=llm_adjust)
-        match_rows.append((m_date, home, away, blended))
+        # Capture per-model 1X2 alongside the blend for a future model
+        # leaderboard. `preds` carries market always, and elo/poisson only when
+        # both teams are seeded; record_matches blanks any absent model.
+        match_rows.append((m_date, home, away, blended, preds))
 
         # 1X2 value from the blended probabilities.
         bets = value_mod.find_value_bets(m_date, home, away, blended, m["odds"])
