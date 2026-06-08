@@ -175,7 +175,6 @@ function AllBets() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, color: 'var(--text-muted)', fontSize: 12.5 }}>
         <span style={{ fontStyle: 'italic' }}>Bet responsibly. Only stake what you can afford to lose.</span>
-        <button onClick={() => store.reset()} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 12, padding: '5px 11px', borderRadius: 'var(--radius-full)', cursor: 'pointer' }}>Reset demo data</button>
       </div>
     </div>
   );

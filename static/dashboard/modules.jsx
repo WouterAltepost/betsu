@@ -37,7 +37,8 @@ function Header({ tab, setTab }) {
               {eur(perf.summary.openExposure)} at risk
             </span>
           ) : null}
-          <Button variant="primary" size="sm" icon={<Icon name="send" size={15} color="var(--accent-fg)" />}>Send card</Button>
+          {/* "Send card" hidden for v1 — wiring it to an auth-gated send endpoint
+              is a noted follow-up (see briefing §13). */}
         </div>
       </div>
     </header>
@@ -298,7 +299,8 @@ function TodayView() {
             <b style={{ color: 'var(--text-primary)' }}>8 matches</b> scanned · <b style={{ color: 'var(--text-primary)' }}>{today.length} value bets</b> clear the 5% edge threshold · {placedCount} placed{staked ? `, ${eur(staked)} staked` : ''}
           </p>
         </div>
-        <Button variant="primary" icon={<Icon name="send" size={16} color="var(--accent-fg)" />}>Send to Telegram</Button>
+        {/* "Send to Telegram" hidden for v1 — the morning card is sent by the
+            scheduled run; wiring a manual send is a noted follow-up (briefing §13). */}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {today.map((b, i) => (
