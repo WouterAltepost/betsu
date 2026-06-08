@@ -131,6 +131,17 @@ def _kickoff_past(bet):
     return dt < datetime.now(timezone.utc)
 
 
+def _display_market(m):
+    """Map the stored totals market `"OU<line>"` (no space) to the SPA's
+    `"OU <line>"` (with a space) so Over/Under bets match the dashboard's filter
+    and ROI-by-market grouping. Only the *display* market is normalized — the raw
+    value still keys the row for updates (see `_bet_to_spa`)."""
+    m = (m or "").strip()
+    if m.startswith("OU") and m[2:3].isdigit():
+        return "OU " + m[2:]          # "OU2.5" -> "OU 2.5"
+    return m
+
+
 def _bet_to_spa(bet):
     """Shape one typed Bets row into the SPA's bet object (section 8 field map)."""
     eff = tracker_mod.effective_result(bet)          # win / loss / pending
@@ -141,7 +152,7 @@ def _bet_to_spa(bet):
         "date": bet.get("match_date"),
         "home": bet.get("home_team"),
         "away": bet.get("away_team"),
-        "market": bet.get("market"),
+        "market": _display_market(bet.get("market")),
         "pick": bet.get("selection_label") or bet.get("selection"),
         "odds": bet.get("odds"),
         "model": bet.get("model_prob"),

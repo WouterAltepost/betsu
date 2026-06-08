@@ -48,6 +48,20 @@ def test_api_bets_shape(monkeypatch):
     assert b["id"]  # stable id present
 
 
+def test_api_bets_ou_market_normalized(monkeypatch):
+    # Backend stores totals as "OU2.5" (no space); the SPA filters/groups on
+    # "OU 2.5" (with a space). The API normalizes the display `market` but keeps
+    # the raw value in `key.market`, or POST /api/bets/update would 404.
+    monkeypatch.setattr(app_mod.tracker_mod, "fetch_bets",
+                        lambda: [_typed(market="OU2.5", selection="Over",
+                                        selection_label="Over 2.5")])
+    resp = _client().get("/api/bets")
+    assert resp.status_code == 200
+    b = resp.get_json()[0]
+    assert b["market"] == "OU 2.5"
+    assert b["key"]["market"] == "OU2.5"
+
+
 def test_api_bets_degrades_on_error(monkeypatch):
     def boom():
         raise RuntimeError("sheets down")
