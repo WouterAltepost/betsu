@@ -45,8 +45,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (SHEETS_CACHE_TTL, SHEETS_CREDENTIALS_DEFAULT, SHEETS_TAB_BETS,
-                    SHEETS_TAB_CONTEXT, SHEETS_TAB_MATCHES, SHEETS_TAB_RESULTS,
-                    SHEETS_TAB_SUMMARY)
+                    SHEETS_TAB_BTTS, SHEETS_TAB_CONTEXT, SHEETS_TAB_MATCHES,
+                    SHEETS_TAB_RESULTS, SHEETS_TAB_SUMMARY)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
@@ -66,6 +66,8 @@ SUMMARY_HEADERS = ["metric", "value"]
 # LLM context-nudge cache. One row per fixture; key is "match_date|home|away".
 # nudge is a JSON blob ({"1","X","2"}); fetched_at gates the TTL refresh.
 CONTEXT_HEADERS = ["key", "nudge", "summary", "source", "confidence", "fetched_at"]
+# Per-event BTTS price cache. One row per event id; fetched_at gates the TTL.
+BTTS_HEADERS = ["event_id", "yes", "no", "fetched_at"]
 
 BET_KEY_COLS = ("match_date", "home_team", "away_team", "market", "selection")
 MATCH_KEY_COLS = ("match_date", "home_team", "away_team")
@@ -238,6 +240,7 @@ def init_db():
     _ws(SHEETS_TAB_MATCHES, MATCHES_HEADERS)
     _ws(SHEETS_TAB_SUMMARY, SUMMARY_HEADERS)
     _ws(SHEETS_TAB_CONTEXT, CONTEXT_HEADERS)
+    _ws(SHEETS_TAB_BTTS, BTTS_HEADERS)
     return SHEET_ID
 
 
@@ -275,6 +278,19 @@ def fetch_results():
     res = [_typed_result(d) for d in _dicts(vals)]
     _cache_put("results", res)
     return res
+
+
+def fetch_matches():
+    """All predicted fixtures from the Matches tab, oldest first. List of dicts
+    with at least match_date/home_team/away_team — used as a reconciliation
+    source when syncing results from an external feed (short TTL cache)."""
+    cached = _cache_get("matches")
+    if cached is not None:
+        return cached
+    _, vals = _values(SHEETS_TAB_MATCHES, MATCHES_HEADERS)
+    rows = _dicts(vals)
+    _cache_put("matches", rows)
+    return rows
 
 
 # --- Public: bets -----------------------------------------------------------
@@ -542,13 +558,52 @@ def upsert_context(key, nudge, summary, source, confidence, fetched_at):
     return key
 
 
+# --- Public: per-event BTTS price cache -------------------------------------
+
+def fetch_btts_odds(event_id):
+    """Return the cached BTTS row for `event_id` as
+    {"yes": float, "no": float, "fetched_at": str}, or None if absent.
+    Short TTL read-through cache like the others (the caller decides freshness
+    against BTTS_CACHE_HOURS using fetched_at)."""
+    cached = _cache_get("btts")
+    if cached is None:
+        _, vals = _values(SHEETS_TAB_BTTS, BTTS_HEADERS)
+        cached = {d["event_id"]: d for d in _dicts(vals) if d.get("event_id")}
+        _cache_put("btts", cached)
+    row = cached.get(str(event_id))
+    if not row:
+        return None
+    return {
+        "yes": _to_float(row.get("yes")),
+        "no": _to_float(row.get("no")),
+        "fetched_at": row.get("fetched_at") or "",
+    }
+
+
+def upsert_btts_odds(event_id, yes, no, fetched_at):
+    """Insert or update one BTTS-cache row (keyed by `event_id`).
+    Returns the event_id written."""
+    ws, vals = _values(SHEETS_TAB_BTTS, BTTS_HEADERS)
+    event_id = str(event_id)
+    row = [_cell(event_id), _cell(yes), _cell(no), _cell(fetched_at)]
+    for i, d in enumerate(_dicts(vals), start=2):  # row 1 is the header
+        if str(d.get("event_id", "")).strip() == event_id:
+            ws.update(range_name=f"A{i}:{_col_a1(len(BTTS_HEADERS))}{i}",
+                      values=[row], value_input_option="RAW")
+            _cache_clear()
+            return event_id
+    ws.append_rows([row], value_input_option="RAW")
+    _cache_clear()
+    return event_id
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "summary"
     if cmd == "status":
         print(status())
     elif cmd == "init":
         init_db()
-        print(f"Ensured Bets/Results/Matches/Summary/Context tabs in sheet {SHEET_ID}")
+        print(f"Ensured Bets/Results/Matches/Summary/Context/BttsOdds tabs in sheet {SHEET_ID}")
     elif cmd == "summary":
         s = summary()
         print(f"Settled: {s['settled']}  W:{s['wins']} L:{s['losses']}  "

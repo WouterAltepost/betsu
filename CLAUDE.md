@@ -39,12 +39,14 @@ stake; a quarter-Kelly figure is shown as a real-money sizing guide.
 ## Layers
 
 **Tools** (`tools/`, deterministic execution):
-- `fixtures.py` — fetch today's fixtures + odds, best price per outcome, de-vig to market probs
+- `fixtures.py` — fetch today's fixtures + odds, best price per outcome, de-vig to market probs; plus `fetch_event_btts` for the per-event BTTS price (an additional market, fetched + cached per event)
 - `elo.py` — Elo ratings + 1X2 probabilities + result-based updates
 - `ensemble.py` — blend predictor probabilities (+ optional LLM nudge)
 - `value.py` — value bets from blended probs vs odds, with Kelly guide
 - `tracker.py` — Google Sheets store: matches, bets, results, grading, ROI summary
 - `poisson.py` — Dixon-Coles goal model (1X2 + Over/Under 2.5 + BTTS)
+- `results_fetch.py` — pull finished WC scores from football-data.org, reconcile
+  team names to the store, write to Results so grading settles hands-off
 - `message.py` — format the Telegram bet card and results recap
 - `telegram_send.py` — send to the configured chat
 - `llm_context.py` — phase 1 (not yet built)
@@ -70,6 +72,8 @@ python run_daily.py --grade            # settle pending bets, send results recap
 python app.py                          # run the dashboard + endpoints locally (http://127.0.0.1:5000)
 python tools/elo.py "Brazil" "Spain"   # sanity-check the Elo model
 python tools/fixtures.py --sports      # list odds-api soccer sport keys
+python tools/results_fetch.py          # list finished WC scores football-data has (last 3d)
+python tools/results_fetch.py --sync   # reconcile + write finished scores to Results
 ```
 
 ## Configuration
@@ -88,15 +92,18 @@ on Railway). The Flask service also reads `RUN_API_KEY` and optional
   eloratings.net before the tournament. The model refines them as results land.
 - Store: Google Sheets (Bets / Results / Matches / Summary tabs) — the single
   source of truth; see `docs/google_sheets_setup.md`.
-- Results: typed into the Sheets **Results** tab (or `tracker.record_result`);
-  football-data.org auto-results is a later add.
+- Results: auto-pulled each grade run from football-data.org (`results_fetch.py`,
+  needs `FOOTBALL_DATA_API_KEY`), reconciled to our team names and written to the
+  Sheets **Results** tab. Manual entry (typing scores, or `tracker.record_result`)
+  stays the fallback and the override — a hand-typed score is never overwritten.
 
 ## Status / roadmap
 
 - **MVP (done):** market + Elo + Poisson ensemble; 1X2 / O-U 2.5 / BTTS value bets; Telegram card; Flask dashboard. Built and tested.
 - **Deploy (done):** stateless Flask service on Railway, Google Sheets store, n8n-scheduled run endpoints (windowed scan + dedup). See `docs/deploy_briefing.md` and `docs/deploy_runbook.md`.
 - **Phase 1 (group stage):** add the LLM context nudge; tune ensemble weights on real results.
-- **Phase 2 (knockouts):** keep what calibrates well, drop dead weight; optional football-data.org auto-results.
+- **Phase 1 (done):** football-data.org auto-results — hands-off grading, fuzzy name reconciliation, manual entry preserved as override.
+- **Phase 2 (knockouts):** keep what calibrates well, drop dead weight.
 
 ## Notes
 

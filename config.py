@@ -62,12 +62,19 @@ ODDS_MARKETS = "h2h,totals"   # 1X2 + Over/Under 2.5.
 # the-odds-api's bulk /odds endpoint only serves FEATURED markets
 # (h2h, spreads, totals). "btts" is an ADDITIONAL market available only on the
 # per-event /events/{id}/odds endpoint, so requesting it here 422s the whole
-# call. BTTS value bets are therefore parked until we add per-event fetching;
-# Poisson still computes BTTS probabilities, there's just no book price to value
-# them against yet, and the fetch degrades gracefully (btts_odds = None).
-# Cost: the-odds-api bills 1 credit per market per region = 2 credits/call.
+# call. Cost: the-odds-api bills 1 credit per market per region = 2 credits/call.
 ODDS_SPORT_WORLDCUP = "soccer_fifa_world_cup"
 # Pre-tournament we also test on friendlies / other live soccer.
+
+# --- BTTS (both teams to score) via the per-event endpoint ------------------
+# "btts" is an ADDITIONAL market, so it can't ride the bulk /odds call — it only
+# exists on /events/{id}/odds, billed 1 credit per market per region PER EVENT.
+# With 104 WC matches and 2 scans/day, fetching per scan would burn the budget,
+# so per-event BTTS is cached per event id and gated. Design: ~1 fetch/match.
+BTTS_ENABLED = os.environ.get("BTTS_ENABLED", "1").strip() in ("1", "true", "True")
+# Reuse a cached BTTS price per event for this many hours (a match sits in the
+# scan window for ~2 scans, so a 12h TTL means one fetch per event, not per scan).
+BTTS_CACHE_HOURS = int(os.environ.get("BTTS_CACHE_HOURS", "12"))
 
 # --- Google Sheets store (primary) ------------------------------------------
 # Google Sheets is betsu's single source of truth — there is no local DB. The
@@ -81,6 +88,7 @@ SHEETS_TAB_RESULTS = "Results"
 SHEETS_TAB_MATCHES = "Matches"
 SHEETS_TAB_SUMMARY = "Summary"
 SHEETS_TAB_CONTEXT = "Context"   # LLM nudge cache (see tools/llm_context.py)
+SHEETS_TAB_BTTS = "BttsOdds"     # per-event BTTS price cache (see fixtures.py)
 # Read-through cache TTL (seconds): keeps dashboard page loads snappy and stays
 # under the Sheets read quota. Writes invalidate it immediately, so a run always
 # reads its own fresh writes.
@@ -105,6 +113,19 @@ LLM_CACHE_HOURS = 12
 LLM_WEB_SEARCH_TOOL = "web_search_20260209"
 LLM_MAX_WEB_SEARCHES = 5      # cap searches per fixture lookup (cost control)
 LLM_TIMEOUT_SECONDS = 90      # hard ceiling on a single get_adjustment call
+
+# --- football-data.org auto-results -----------------------------------------
+# Before each grade run, finished World Cup scores are pulled from
+# football-data.org and written to the Results tab (under our store's team
+# names), so grading settles without anyone hand-typing scores. Manual entry
+# stays the fallback and the override — see tools/results_fetch.py.
+FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
+FOOTBALL_DATA_COMPETITION = "WC"   # football-data's 2026 World Cup code
+# Off only with AUTO_RESULTS_ENABLED=0 or no FOOTBALL_DATA_API_KEY: then grade
+# reads whatever is already in the Results tab, exactly as before.
+AUTO_RESULTS_ENABLED = os.environ.get("AUTO_RESULTS_ENABLED", "1").strip() in ("1", "true", "True")
+# How many days back to ask football-data for finished fixtures each grade run.
+RESULTS_LOOKBACK_DAYS = int(os.environ.get("RESULTS_LOOKBACK_DAYS", "3"))
 
 # --- Telegram ---------------------------------------------------------------
 TELEGRAM_API_BASE = "https://api.telegram.org"

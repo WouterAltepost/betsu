@@ -27,11 +27,12 @@ endpoints in app.py (n8n calls them); this CLI is the same logic for manual use.
 
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS,
-                    LLM_ENABLED)
+                    LLM_ENABLED, AUTO_RESULTS_ENABLED, BTTS_ENABLED,
+                    BTTS_CACHE_HOURS)
 from tools import elo as elo_mod
 from tools import ensemble as ensemble_mod
 from tools import poisson as poisson_mod
@@ -48,6 +49,39 @@ def _neutral_and_host(home, away):
     if home in HOST_NATIONS:
         return False  # treat host as having home advantage
     return True
+
+
+def _btts_odds_for(event_id, dry_run=False):
+    """Best BTTS Yes/No odds for an event, cached per event id and TTL-gated.
+
+    BTTS is an ADDITIONAL market billed per event, so this is the ONLY place we
+    fetch it: a fresh cache row (even one recording "not offered") is reused, so
+    API use is bounded to ~one call per event per BTTS_CACHE_HOURS. Returns
+    {"Yes": odds, "No": odds} or None. In dry-run we still fetch (for a realistic
+    card) but never write the cache. Fail-safe: any miss/error yields None."""
+    if not event_id:
+        return None
+    now = datetime.now(timezone.utc)
+    cached = tracker_mod.fetch_btts_odds(event_id)
+    if cached:
+        try:
+            fetched = datetime.fromisoformat(
+                str(cached.get("fetched_at", "")).replace("Z", "+00:00"))
+        except ValueError:
+            fetched = None
+        if fetched and (now - fetched) < timedelta(hours=BTTS_CACHE_HOURS):
+            if cached.get("yes") and cached.get("no"):
+                return {"Yes": cached["yes"], "No": cached["no"]}
+            return None  # fresh row recording "no BTTS offered" — don't refetch
+
+    odds = fixtures_mod.fetch_event_btts(event_id)
+    print(f"  [btts fetch event {event_id}: "
+          f"{odds if odds else 'not offered'}]")
+    if not dry_run:
+        yes = odds["Yes"] if odds else ""
+        no = odds["No"] if odds else ""
+        tracker_mod.upsert_btts_odds(event_id, yes, no, now.isoformat())
+    return odds
 
 
 def run_morning(run_date, dry_run=False, window_hours=None):
@@ -121,8 +155,13 @@ def run_morning(run_date, dry_run=False, window_hours=None):
             bets += value_mod.find_value_totals(
                 m_date, home, away, poisson_mkts["ou"],
                 m.get("totals_odds"), OU_LINE)
+            # BTTS price isn't in the bulk fetch (additional market); resolve it
+            # per event, cached + TTL-gated, only when enabled. find_value_btts
+            # returns [] for None odds, so a missing price forces no bet.
+            btts_odds = (_btts_odds_for(m.get("event_id"), dry_run=dry_run)
+                         if BTTS_ENABLED else None)
             bets += value_mod.find_value_btts(
-                m_date, home, away, poisson_mkts["btts"], m.get("btts_odds"))
+                m_date, home, away, poisson_mkts["btts"], btts_odds)
 
         for b in bets:
             b["commence_time"] = m.get("commence_time", "")
@@ -157,14 +196,31 @@ def run_morning(run_date, dry_run=False, window_hours=None):
 
 def run_grade(run_date):
     """Settle pending bets against the Results tab and post a recap.
-    Returns a dict summary {settled, record, recap}."""
+
+    First (when enabled and a key is present) pull recent finished scores from
+    football-data.org and write them under our store's team names, so grading
+    settles without hand-typed scores. The sync is fail-safe — any outage logs
+    and no-ops, and manual Results entries still grade.
+    Returns a dict summary {settled, record, recap, synced}."""
+    synced = None
+    if AUTO_RESULTS_ENABLED and os.environ.get("FOOTBALL_DATA_API_KEY", "").strip():
+        from tools import results_fetch
+        # Reconcile against fixtures we actually track: pending bets (what needs
+        # settling) plus the Matches tab (broader coverage).
+        store_fixtures = tracker_mod.fetch_bets() + tracker_mod.fetch_matches()
+        synced = results_fetch.sync_results(store_fixtures)
+        print(f"[betsu] auto-results: synced {synced['synced']}, "
+              f"skipped {synced['skipped_existing']} existing, "
+              f"{len(synced['unmatched'])} unmatched, "
+              f"{len(synced['conflicts'])} conflict(s).")
+
     settled = tracker_mod.grade_pending()
     record = tracker_mod.summary(write=True)
     recap = message_mod.build_results_recap(run_date, settled, record)
     from tools.telegram_send import send_message
     send_message(recap)
     print(f"[betsu] Graded {settled} bet(s).")
-    return {"settled": settled, "record": record, "recap": recap}
+    return {"settled": settled, "record": record, "recap": recap, "synced": synced}
 
 
 if __name__ == "__main__":

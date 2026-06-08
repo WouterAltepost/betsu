@@ -167,6 +167,7 @@ def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION,
         totals = _best_totals(ev)        # {} when the 2.5 line isn't offered
         btts = _best_btts(ev)            # {} when btts isn't offered
         matches.append({
+            "event_id": ev["id"],          # needed for the per-event BTTS fetch
             "home_team": ev["home_team"],
             "away_team": ev["away_team"],
             "commence_time": commence,
@@ -176,6 +177,36 @@ def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION,
             "btts_odds": btts if {"Yes", "No"} <= set(btts) else None,
         })
     return matches
+
+
+def fetch_event_btts(event_id, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION):
+    """Fetch best BTTS Yes/No decimal odds for a single event.
+
+    "btts" is an ADDITIONAL market, served only by the per-event endpoint
+    /events/{id}/odds (the bulk /odds call 422s on it). Billed 1 credit per
+    market per region per event, so callers MUST cache and gate this.
+
+    Returns {"Yes": odds, "No": odds} when both sides are offered, else None.
+    Resilient: a 404/422/empty/error for an event returns None, never raises."""
+    _require_key()
+    url = f"{ODDS_API_BASE}/sports/{sport}/events/{event_id}/odds"
+    params = {
+        "apiKey": API_KEY,
+        "regions": region,
+        "markets": "btts",
+        "oddsFormat": "decimal",
+        "dateFormat": "iso",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        ev = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+    if not ev:
+        return None
+    best = _best_btts(ev)
+    return best if {"Yes", "No"} <= set(best) else None
 
 
 if __name__ == "__main__":
