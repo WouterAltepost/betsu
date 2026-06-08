@@ -61,7 +61,7 @@ def build_daily_card(run_date, bets, n_matches, record=None):
     record_line = _real_record_line(record)
     if record_line:
         lines.append(record_line)
-    lines.append("\n<i>Stakes are a ¼-Kelly guide — bet what you choose. "
+    lines.append("\n<i>Stakes are a ¼-Kelly guide, bet what you choose. "
                  "Bet responsibly.</i>")
     return "\n".join(lines)
 
@@ -75,7 +75,7 @@ def build_results_recap(run_date, settled, record):
                   f"({real['hit_rate']:.0f}%)",
                   f"P&L: {real['pnl_eur']:+.0f}€ · ROI {real['roi_eur_pct']:+.1f}%"]
     else:
-        lines.append("No settled placed bets yet — tick the bets you backed on "
+        lines.append("No settled placed bets yet. Tick the bets you backed on "
                      "the dashboard to track real P&L.")
     return "\n".join(lines)
 
