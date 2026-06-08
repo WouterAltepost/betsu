@@ -73,8 +73,12 @@ vendored locally — no runtime CDN) plus a small dashboard-auth-gated JSON API
 (`GET /api/bets`, `GET /api/summary`, `POST /api/bets/update`) that reads/writes
 the placed-bet fields back to Sheets, and the protected `POST /run/morning` /
 `POST /run/grade` endpoints that n8n calls on a schedule. The dashboard/API are
-isolated and fail-safe, so they never affect the run endpoints. See
-`docs/deploy_runbook.md` and `docs/dashboard_redesign_briefing.md`.
+isolated and fail-safe, so they never affect the run endpoints. It also serves an
+installable mobile PWA at `/m` (vendored static files in `static/mobile/`, same
+auth, same `/api/*` write contract — Sheets stays the single source of truth; no
+service worker by decision). See `docs/deploy_runbook.md`,
+`docs/dashboard_redesign_briefing.md`, and `docs/mobile_pwa_briefing.md` /
+`docs/mobile_runbook.md`.
 
 ## Running it
 
