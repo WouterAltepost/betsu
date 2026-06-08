@@ -1,0 +1,52 @@
+{
+  "name": "betsu — grade",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 10 * * *" }
+          ]
+        }
+      },
+      "id": "schedule-grade",
+      "name": "Schedule 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://betsu.up.railway.app/run/grade",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Run-Key", "value": "REPLACE_WITH_RUN_API_KEY" }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      },
+      "id": "http-grade",
+      "name": "POST /run/grade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Schedule 10:00": {
+      "main": [
+        [
+          { "node": "POST /run/grade", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Amsterdam"
+  },
+  "pinData": {}
+}

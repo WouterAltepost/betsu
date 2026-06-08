@@ -23,8 +23,10 @@ a fixture's is (match_date, home_team, away_team). Writes skip rows whose key
 already exists, so re-running a scan only appends genuinely new rows.
 
 Auth is a Google Cloud *service account*:
-    deploy — GOOGLE_CREDENTIALS_JSON  (full key JSON pasted into an env var)
+    deploy — GOOGLE_CREDENTIALS_B64   (base64 of the key JSON; preferred, paste-safe)
+             GOOGLE_CREDENTIALS_JSON  (full key JSON pasted into an env var)
     local  — a credentials.json key file (GOOGLE_CREDENTIALS_PATH)
+Precedence: B64 -> JSON -> key file.
 GOOGLE_SHEETS_ID selects the spreadsheet. See docs/google_sheets_setup.md.
 
 CLI:
@@ -86,15 +88,21 @@ def _client():
     global _GC
     if _GC is None:
         import gspread
+        b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "").strip()
         info = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
-        if info:
+        if b64:
+            import base64
+            _GC = gspread.service_account_from_dict(
+                json.loads(base64.b64decode(b64)))
+        elif info:
             _GC = gspread.service_account_from_dict(json.loads(info))
         else:
             path = os.environ.get("GOOGLE_CREDENTIALS_PATH", SHEETS_CREDENTIALS_DEFAULT)
             if not os.path.exists(path):
                 raise RuntimeError(
-                    "No Google credentials. Set GOOGLE_CREDENTIALS_JSON (deploy) or "
-                    f"place a service-account key at {path} (local).")
+                    "No Google credentials. Set GOOGLE_CREDENTIALS_B64 or "
+                    "GOOGLE_CREDENTIALS_JSON (deploy) or place a service-account "
+                    f"key at {path} (local).")
             _GC = gspread.service_account(filename=path)
     return _GC
 

@@ -1,0 +1,53 @@
+{
+  "name": "betsu — morning scan",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 9 * * *" },
+            { "field": "cronExpression", "expression": "0 20 * * *" }
+          ]
+        }
+      },
+      "id": "schedule-morning",
+      "name": "Schedule 09:00 & 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://betsu.up.railway.app/run/morning",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Run-Key", "value": "REPLACE_WITH_RUN_API_KEY" }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      },
+      "id": "http-morning",
+      "name": "POST /run/morning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Schedule 09:00 & 20:00": {
+      "main": [
+        [
+          { "node": "POST /run/morning", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Amsterdam"
+  },
+  "pinData": {}
+}

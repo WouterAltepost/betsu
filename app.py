@@ -118,6 +118,9 @@ TEMPLATE = """
     .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
     h1 { font-size: 22px; margin: 0 0 4px; }
     .sub { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+    .banner { background: #3d1418; border: 1px solid #f85149; color: #f8d7da;
+              border-radius: 8px; padding: 12px 16px; margin-bottom: 24px;
+              font-size: 14px; }
     .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr));
              gap: 12px; margin-bottom: 28px; }
     .card { background: #161b22; border: 1px solid #21262d; border-radius: 10px;
@@ -143,6 +146,9 @@ TEMPLATE = """
 <div class="wrap">
   <h1>⚽ betsu — performance</h1>
   <div class="sub">Paper-traded unless flagged real. Source: Google Sheets</div>
+  {% if error %}
+  <div class="banner">Store unreachable: {{ error }}</div>
+  {% endif %}
 
   <div class="cards">
     <div class="card"><div class="label">Record (W-L)</div>
@@ -231,11 +237,21 @@ def _pnl_curve(bets):
 @app.route("/")
 @require_dashboard_auth
 def index():
-    bets = tracker_mod.fetch_bets()
-    s = tracker_mod.summary()
+    # The Sheets store is opened lazily here; a creds/sharing problem must be
+    # diagnosable from the browser (a banner) rather than collapsing to a 500.
+    error = None
+    try:
+        bets = tracker_mod.fetch_bets()
+        s = tracker_mod.summary()
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        bets = []
+        s = {"settled": 0, "wins": 0, "losses": 0, "pending": 0,
+             "hit_rate": 0.0, "pnl_units": 0.0, "roi_pct": 0.0}
     labels, values = _pnl_curve(bets)
     return render_template_string(
-        TEMPLATE, s=s, bets=bets, curve_labels=labels, curve_values=values)
+        TEMPLATE, s=s, bets=bets, curve_labels=labels, curve_values=values,
+        error=error)
 
 
 if __name__ == "__main__":

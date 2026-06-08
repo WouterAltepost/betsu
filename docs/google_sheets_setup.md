@@ -61,12 +61,31 @@ GOOGLE_SHEETS_ID=THE_ID_FROM_STEP_4
 GOOGLE_CREDENTIALS_PATH=credentials.json
 ```
 
-For **deployment** (Railway), there is no key file — paste the full JSON into an
-env var instead, which takes precedence over the file path:
+For **deployment** (Railway), there is no key file — pass the credentials in an
+env var instead, which takes precedence over the file path.
+
+**Recommended: `GOOGLE_CREDENTIALS_B64`.** Base64 is a single line with no quotes
+or newlines, so it's immune to the paste-mangling that breaks a raw-JSON env var.
+Generate it locally from your key file:
+
+```bash
+base64 -w0 credentials.json              # Linux
+base64 -i credentials.json | tr -d '\n'  # macOS
+```
+
+Paste the output into the env var:
+
+```
+GOOGLE_CREDENTIALS_B64=eyAic2VydmljZV9hY2NvdW50IiA6IC4uLiB9
+```
+
+Alternatively, paste the full JSON directly (more fragile):
 
 ```
 GOOGLE_CREDENTIALS_JSON={ ...the entire service-account JSON... }
 ```
+
+Precedence is `GOOGLE_CREDENTIALS_B64` -> `GOOGLE_CREDENTIALS_JSON` -> key file.
 
 Install the deps if you haven't: `pip install -r requirements.txt`.
 
