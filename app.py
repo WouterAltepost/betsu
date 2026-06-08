@@ -21,10 +21,11 @@ Run:
     gunicorn app:app --workers 2 --timeout 120      # production (see Procfile)
 """
 
+import hashlib
 import hmac
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from functools import wraps
 
 from flask import Flask, Response, jsonify, render_template_string, request
@@ -99,6 +100,124 @@ def run_morning_endpoint():
 def run_grade_endpoint():
     result = run_daily.run_grade(str(date.today()))
     return jsonify({"ok": True, "settled": result["settled"], "record": result["record"]})
+
+
+# --- JSON API for the SPA (read state + write placed/stake/manual_result) ----
+# These power the React dashboard. They are gated by the same dashboard auth as
+# GET / (no new secret), and degrade defensively so a Sheets hiccup never 500s
+# the SPA. They never touch odds and never affect /run/morning or /run/grade.
+
+BET_KEY_FIELDS = ("match_date", "home_team", "away_team", "market", "selection")
+
+
+def _bet_id(bet):
+    """Stable id for a bet from its key tuple (deterministic across processes,
+    unlike Python's salted hash)."""
+    raw = "|".join(str(bet.get(c, "")).strip() for c in BET_KEY_FIELDS)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _kickoff_past(bet):
+    """True if the fixture's kickoff (commence_time, ISO/UTC) is in the past."""
+    ct = str(bet.get("commence_time") or "").strip()
+    if not ct:
+        return False
+    try:
+        dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt < datetime.now(timezone.utc)
+
+
+def _bet_to_spa(bet):
+    """Shape one typed Bets row into the SPA's bet object (section 8 field map)."""
+    eff = tracker_mod.effective_result(bet)          # win / loss / pending
+    outcome = eff if eff in ("win", "loss") else None
+    key = {c: str(bet.get(c, "")).strip() for c in BET_KEY_FIELDS}
+    return {
+        "id": _bet_id(bet),
+        "date": bet.get("match_date"),
+        "home": bet.get("home_team"),
+        "away": bet.get("away_team"),
+        "market": bet.get("market"),
+        "pick": bet.get("selection_label") or bet.get("selection"),
+        "odds": bet.get("odds"),
+        "model": bet.get("model_prob"),
+        "market_p": bet.get("implied_prob"),
+        "edge": bet.get("edge"),
+        "kelly": bet.get("kelly_units"),
+        "outcome": outcome,
+        "played": outcome is not None or _kickoff_past(bet),
+        "note": bet.get("context_note") or None,
+        "placed": (bet.get("placed") or "").strip() == "1",
+        "stake": bet.get("staked_real") or 0,
+        "result": eff,
+        "key": key,
+    }
+
+
+@app.route("/api/bets")
+@require_dashboard_auth
+def api_bets():
+    """All bets, typed and shaped for the SPA. Degrades to {"error": ...} with a
+    200 so the SPA can show a banner instead of a hard failure."""
+    try:
+        bets = tracker_mod.fetch_bets()
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 200
+    return jsonify([_bet_to_spa(b) for b in bets])
+
+
+@app.route("/api/summary")
+@require_dashboard_auth
+def api_summary():
+    """summary() dict: the real-money block (headline) + the units/model track."""
+    try:
+        return jsonify(tracker_mod.summary())
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 200
+
+
+@app.route("/api/bets/update", methods=["POST"])
+@require_dashboard_auth
+def api_bets_update():
+    """Write the user-owned fields of one bet (placed / stake / manual_result).
+    Body: {key:{match_date,home_team,away_team,market,selection}, placed?, stake?,
+    manual_result?}. Returns the updated bet in SPA shape."""
+    body = request.get_json(silent=True) or {}
+    key = body.get("key") or {}
+    if not all(str(key.get(c, "")).strip() for c in BET_KEY_FIELDS):
+        return jsonify({"error": "missing or incomplete key"}), 400
+
+    placed = body.get("placed")
+    if placed is not None:
+        placed = bool(placed)
+
+    stake = body.get("stake")
+    if stake is not None:
+        try:
+            stake = float(stake)
+        except (TypeError, ValueError):
+            return jsonify({"error": "stake must be numeric"}), 400
+        if stake < 0:
+            return jsonify({"error": "stake must be >= 0"}), 400
+
+    manual = body.get("manual_result")
+    if manual is not None:
+        manual = str(manual).strip().lower()
+        if manual not in ("win", "loss", ""):
+            return jsonify({"error": "manual_result must be win, loss, or empty"}), 400
+
+    try:
+        updated = tracker_mod.update_bet_user_fields(
+            key, placed=placed, stake_eur=stake, manual_result=manual)
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    if updated is False:
+        return jsonify({"error": "bet not found"}), 404
+    return jsonify(_bet_to_spa(updated))
 
 
 # --- Dashboard --------------------------------------------------------------
