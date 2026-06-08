@@ -9,7 +9,7 @@ const { useState: _appS, useEffect: _appE } = React;
 
 function LoadingShell() {
   return (
-    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', fontSize: 14, gap: 10 }}>
+    <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-sans)', fontSize: 14, gap: 10 }}>
       <Icon name="loader" size={18} color="var(--warm-400)" />
       loading your bets…
     </div>
@@ -63,7 +63,7 @@ function BetsuApp() {
   else screen = <AllBetsList store={s} />;
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)' }}>
       <AppHeader store={s} />
       {s.error() ? <ErrorBanner msg={s.error()} /> : null}
       <main style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '18px 18px 26px' }}>
