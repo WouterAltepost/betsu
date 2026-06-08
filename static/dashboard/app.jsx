@@ -17,7 +17,7 @@ function LoadingShell() {
 
 function ErrorBanner({ msg }) {
   return (
-    <div style={{ maxWidth: 1180, margin: '12px auto 0', padding: '0 28px' }}>
+    <div style={{ maxWidth: CONTENT_MAX, margin: '12px auto 0', padding: '0 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--loss-bg)', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 13.5, fontWeight: 600 }}>
         <Icon name="alert-triangle" size={16} color="var(--loss)" />
         Store unreachable: {msg}
@@ -58,7 +58,7 @@ function App() {
         <Header tab={tab} setTab={setTab} />
         {tab === 'overview' && <Overview />}
         {tab === 'allbets' && <AllBets />}
-        {tab === 'today' && <main style={{ maxWidth: 1040, margin: '0 auto', padding: '28px 28px 80px' }}><TodayView /></main>}
+        {tab === 'today' && <main style={{ maxWidth: CONTENT_MAX, margin: '0 auto', padding: '28px 20px 80px' }}><TodayView /></main>}
       </div>
       <ToastHost />
     </TweakCtx.Provider>

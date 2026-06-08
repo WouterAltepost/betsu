@@ -87,7 +87,7 @@ function AllBets() {
   });
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '26px 28px 80px' }}>
+    <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto', padding: '26px 20px 80px' }}>
       {/* heading */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>

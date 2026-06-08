@@ -15,7 +15,7 @@ function Header({ tab, setTab }) {
       background: 'rgba(251,249,246,0.82)', backdropFilter: 'saturate(180%) blur(12px)',
       WebkitBackdropFilter: 'saturate(180%) blur(12px)', borderBottom: '1px solid var(--border-subtle)',
     }}>
-      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 28px', height: 62, display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div style={{ maxWidth: CONTENT_MAX, margin: '0 auto', padding: '0 20px', height: 62, display: 'flex', alignItems: 'center', gap: 20 }}>
         <Logo size={30} markSrc={LOGO_SRC} />
         <nav style={{ display: 'flex', gap: 4, marginLeft: 6 }}>
           {TABS.map(([id, label]) => (

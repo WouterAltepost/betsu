@@ -21,6 +21,10 @@ function fmtSigned(n, suffix = '', dp = 2) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(dp)}${suffix}`;
 }
 
+// Shared content width so the Header, all three tabs, and the Today main never
+// drift apart. Tunable; the user eyeballs this on the live deploy.
+const CONTENT_MAX = 1280;
+
 // Tweak context: layout direction, gradient intensity, density.
 const TweakCtx = createContext({ layout: 'editorial', gradient: 'balanced', density: 'comfortable' });
 const useTw = () => useContext(TweakCtx);
@@ -28,4 +32,4 @@ const useTw = () => useContext(TweakCtx);
 // density helpers
 function dens(tw, comfy, compact) { return tw.density === 'compact' ? compact : comfy; }
 
-Object.assign(window, { Icon, fmtSigned, TweakCtx, useTw, dens });
+Object.assign(window, { Icon, fmtSigned, TweakCtx, useTw, dens, CONTENT_MAX });
