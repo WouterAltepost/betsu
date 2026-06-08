@@ -17,7 +17,7 @@ function AppHeader({ store }) {
   const atRisk = perf.summary.openExposure;
   return (
     <header style={{
-      flex: 'none', paddingTop: 54, padding: '54px 18px 12px',
+      flex: 'none', padding: 'calc(env(safe-area-inset-top) + 12px) 18px 12px',
       background: 'rgba(251,249,246,0.86)', backdropFilter: 'saturate(180%) blur(12px)',
       WebkitBackdropFilter: 'saturate(180%) blur(12px)',
       borderBottom: '1px solid var(--border-subtle)',
@@ -48,7 +48,7 @@ function BottomTabBar({ tab, setTab, store, variant }) {
       flex: 'none', display: 'flex', alignItems: 'stretch',
       background: 'rgba(251,249,246,0.92)', backdropFilter: 'saturate(180%) blur(14px)',
       WebkitBackdropFilter: 'saturate(180%) blur(14px)',
-      borderTop: '1px solid var(--border-subtle)', paddingBottom: 22, paddingTop: 7,
+      borderTop: '1px solid var(--border-subtle)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)', paddingTop: 7,
     }}>
       {TABS.map(([id, label, icon]) => {
         const active = tab === id;
