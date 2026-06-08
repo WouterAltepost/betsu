@@ -7,7 +7,7 @@
 //
 // Two derivations live here:
 //   computePerf(state)  — REAL MONEY (€) over the bets the user placed. Headline.
-//   computeModelPerf()  — the MODEL/paper track (units) over ALL suggestions,
+//   computeModelPerf()  — the model track (units) over ALL suggestions,
 //                         placed or not — what betsu is judged on (calibration).
 
 const BANKROLL = 1000;            // € bankroll for the ¼-Kelly stake suggestion
@@ -236,9 +236,9 @@ function computePerf(state) {
   };
 }
 
-// ---- MODEL / paper track (units): over ALL suggestions, placed or not ----
+// ---- MODEL track (units): over ALL suggestions, placed or not ----
 // This is the benchmark betsu is judged on (calibration + ROI vs the line), kept
-// distinct from the user's real € P&L. Flat 1-unit paper stake per suggestion.
+// distinct from the user's real € P&L. Flat 1-unit model stake per suggestion.
 function computeModelPerf() {
   const settled = _catalog.filter(b => b.outcome === 'win' || b.outcome === 'loss');
   const wins = settled.filter(b => b.outcome === 'win').length;

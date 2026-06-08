@@ -1,6 +1,6 @@
 // betsu — the Performance view (editorial layout). Two clearly-separated tracks:
 //   "Your money"  — real € P&L on the bets you actually placed (the headline).
-//   "Model"       — calibration + paper ROI over ALL suggestions, placed or not;
+//   "Model"       — calibration + model ROI over ALL suggestions, placed or not;
 //                   this is what betsu is judged on. Don't bury the distinction.
 const { useMemo: _lum } = React;
 
@@ -35,7 +35,7 @@ function SectionLabel({ kicker, title, desc }) {
   );
 }
 
-// ---- Model performance (all suggestions, paper) ----
+// ---- Model performance (all suggestions, model track) ----
 function ModelStat({ label, value, sub, tone }) {
   const c = tone === 'pos' ? 'var(--win)' : tone === 'neg' ? 'var(--loss)' : 'var(--text-primary)';
   return (
@@ -70,7 +70,7 @@ function ModelPerfPanel() {
   const mp = computeModelPerf();
   const tiles = [
     { label: 'Suggestions', value: mp.suggestions, sub: `${mp.settled} settled` },
-    { label: 'Paper ROI', value: mp.settled ? pct(mp.roi_units, true) : '—', sub: 'flat 1u / bet', tone: mp.roi_units >= 0 ? 'pos' : 'neg' },
+    { label: 'Model ROI', value: mp.settled ? pct(mp.roi_units, true) : '—', sub: 'flat 1u / bet', tone: mp.roi_units >= 0 ? 'pos' : 'neg' },
     { label: 'Record', value: `${mp.wins}–${mp.losses}`, sub: mp.settled ? `${mp.hit_rate}% hit` : 'none settled' },
     { label: 'Avg edge', value: `+${mp.avg_edge}%`, sub: 'at entry' },
   ];
@@ -116,7 +116,7 @@ function LayoutEditorial({ perf }) {
         </Panel>
         <BetLog />
 
-        <SectionLabel kicker="Model" title="Does the strategy beat the bookmakers?" desc="Two simple questions. Does betsu make money against the book (Paper ROI), and are its probabilities honest (Calibration). Measured over every suggestion it flagged, not just the bets you placed." />
+        <SectionLabel kicker="Model" title="Does the strategy beat the bookmakers?" desc="Two simple questions. Does betsu make money against the book (Model ROI), and are its probabilities honest (Calibration). Measured over every suggestion it flagged, not just the bets you placed." />
         <ModelPerfPanel />
       </div>
     </div>
