@@ -18,7 +18,9 @@ CLI:
 
 import json
 import os
+import re
 import sys
+import unicodedata
 
 from rapidfuzz import fuzz, process
 
@@ -40,47 +42,128 @@ def load_ratings(path=SEED_PATH):
     return {k: float(v) for k, v in raw.items() if not k.startswith("_")}
 
 
-MATCH_THRESHOLD = 85
+# Fuzzy-match floor for the seed lookup. Deliberately high: a MIS-match here is
+# worse than a miss — it hands a team the WRONG Elo rating (silently corrupting
+# the Poisson lambdas, the blend, and any bet off it), whereas a miss is caught
+# by run_daily's is_seeded guard, which drops the Elo layer. token_sort_ratio
+# scores some distinct 2026 qualifiers dangerously high (Australia vs Austria =
+# 87.5; Iran/Iraq, Slovakia/Slovenia are the same class), so 85 would let a
+# non-exact feed spelling of one resolve to the other. Accent/punctuation
+# variants and known feed spellings are handled by normalisation + ALIASES
+# below, so genuine variants resolve BEFORE fuzzy is reached; 90 then keeps the
+# confusable country pairs apart. Mirrors tools/results_fetch.py's _THRESHOLD.
+MATCH_THRESHOLD = 90
+
+# When the top two fuzzy candidates are within this many points of each other,
+# the match is ambiguous (two plausible seeds) — fall back to default and let
+# the is_seeded guard drop the layer rather than guess wrong.
+AMBIGUITY_MARGIN = 5
 
 # Known feed spellings -> canonical seed key. The-odds-api and similar feeds
 # spell some teams differently enough that token-sort fuzzy matching misses
 # them entirely (e.g. "USA" vs "United States", "Korea Republic" vs
 # "South Korea"). These are resolved before the fuzzy fallback so a host
-# nation or qualifier never silently drops to the default rating.
+# nation or qualifier never silently drops to the default rating — and, for the
+# confusable pairs, so a known variant resolves explicitly instead of riding on
+# a borderline fuzzy score. Keys are matched after normalisation (see
+# _normalize), so accents/punctuation/case in the key don't matter.
+# tools/results_fetch.py imports this map (as elo.ALIASES) for its own
+# reconciliation, so the two stay in sync; keep keys lowercase for that caller.
 ALIASES = {
+    # United States (host nation)
     "usa": "United States",
     "united states of america": "United States",
+    # Côte d'Ivoire
     "cote d'ivoire": "Ivory Coast",
     "côte d'ivoire": "Ivory Coast",
+    # Cape Verde
     "cabo verde": "Cape Verde",
+    "cape verde islands": "Cape Verde",
+    # Czechia
     "czech republic": "Czechia",
+    # South Korea
     "korea republic": "South Korea",
     "republic of korea": "South Korea",
+    "korea, republic of": "South Korea",
+    # Türkiye
     "turkiye": "Turkey",
     "türkiye": "Turkey",
+    # Iran
     "ir iran": "Iran",
     "iran islamic republic": "Iran",
+    "islamic republic of iran": "Iran",
+    # Bosnia and Herzegovina
     "bosnia & herzegovina": "Bosnia and Herzegovina",
+    "bosnia-herzegovina": "Bosnia and Herzegovina",
+    "bosnia and herzegovina": "Bosnia and Herzegovina",
+    # DR Congo
     "dr congo": "DR Congo",
     "congo dr": "DR Congo",
     "democratic republic of the congo": "DR Congo",
+    "congo democratic republic": "DR Congo",
+    # Republic of Ireland
+    "ireland": "Republic of Ireland",
 }
+
+
+def _strip_accents(s):
+    """Drop combining accents so 'Curaçao' == 'Curacao', 'Türkiye' == 'Turkiye'."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s)
+                   if not unicodedata.combining(c))
+
+
+def _normalize(name):
+    """Canonical comparison key: lowercase, accent-folded, punctuation and
+    repeated whitespace collapsed to single spaces. So "Côte d'Ivoire",
+    "Cote d'Ivoire" and "cote d ivoire" all compare equal. Mirrors the
+    canonicalisation in tools/results_fetch.py so the two can't drift."""
+    s = _strip_accents((name or "").strip().lower())
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return s.strip()
+
+
+# Alias map keyed by normalized form, so accents/punctuation/case in the raw
+# alias keys above are irrelevant at lookup time.
+_ALIAS_NORM = {_normalize(k): v for k, v in ALIASES.items()}
 
 
 def lookup_rating(name, ratings):
     """
-    Resolve a team name to (rating, matched_key) via exact match, then a known
-    alias, then fuzzy match. matched_key is None when no seed was found and we
-    fell back to DEFAULT_RATING — callers use that to flag the match.
+    Resolve a team name to (rating, matched_key). Resolution order, tightest
+    first: exact key, then normalized alias, then normalized exact key, then a
+    fuzzy fallback gated by MATCH_THRESHOLD and an ambiguity check. matched_key
+    is None when no confident seed was found and we fell back to DEFAULT_RATING
+    — callers (is_seeded) use that to flag the match and drop the Elo layer.
     """
+    # 1. Exact key — unchanged fast path for canonical seed names.
     if name in ratings:
         return ratings[name], name
-    alias = ALIASES.get(name.strip().lower())
+
+    q = _normalize(name)
+    if not q:
+        return DEFAULT_RATING, None
+
+    # 2. Known feed spelling -> canonical seed key, by normalized form.
+    alias = _ALIAS_NORM.get(q)
     if alias and alias in ratings:
         return ratings[alias], alias
-    match = process.extractOne(name, ratings.keys(), scorer=fuzz.token_sort_ratio)
-    if match and match[1] >= MATCH_THRESHOLD:
-        return ratings[match[0]], match[0]
+
+    # 3. Normalized exact match against the seed keys (absorbs accent- and
+    #    punctuation-only differences, e.g. "Curaçao" -> "Curacao").
+    norm_to_key = {_normalize(k): k for k in ratings}
+    if q in norm_to_key:
+        key = norm_to_key[q]
+        return ratings[key], key
+
+    # 4. Fuzzy fallback over normalized keys, with an ambiguity guard: only
+    #    accept a clear winner that also clears the confusable-pair threshold.
+    candidates = process.extract(q, list(norm_to_key.keys()),
+                                 scorer=fuzz.token_sort_ratio, limit=2)
+    if candidates and candidates[0][1] >= MATCH_THRESHOLD:
+        if len(candidates) > 1 and candidates[0][1] - candidates[1][1] < AMBIGUITY_MARGIN:
+            return DEFAULT_RATING, None  # two seeds too close — don't guess
+        key = norm_to_key[candidates[0][0]]
+        return ratings[key], key
     return DEFAULT_RATING, None
 
 

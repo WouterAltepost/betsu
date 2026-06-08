@@ -1,7 +1,7 @@
 {
   "_comment": "World Football Elo seeds, refreshed 2026-06-07 from eloratings.net (World.tsv feed). These are STARTING parameters; the model self-refines as results land. Relative differences drive predictions, not absolute values. Any team not listed uses DEFAULT_RATING (1700) and is FLAGGED by the fallback guard so it never produces a spurious edge.",
   "_qualified_note": "All 48 World Cup 2026 qualifiers are seeded below. Non-qualified national teams (Italy, Denmark, Ukraine, Nigeria, Russia, Serbia, Greece, Poland, Chile, Peru, etc.) are kept for pre-tournament friendly testing.",
-  "_name_note": "Keys use common English names. The-odds-api may use variants (e.g. 'USA', 'Cote d'Ivoire', 'Cabo Verde', 'Czech Republic', 'South Korea'). elo.py fuzzy-matches at >=85; the first real fixture pull on June 11 will flag via the guard any team that falls back to default, which is the signal to add the exact odds-api spelling here.",
+  "_name_note": "Keys use common English names. The-odds-api may use variants (e.g. 'USA', 'Cote d'Ivoire', 'Cabo Verde', 'Czech Republic', 'South Korea'). elo.py resolves these via accent/punctuation normalisation + an explicit ALIASES map, then a fuzzy fallback floored at 90 (high enough that confusable pairs like Australia/Austria and Iran/Iraq can't cross-resolve). Known variants resolve before fuzzy is reached. The first real fixture pull on June 11 will flag via the guard any team that still falls back to default — the signal to add its exact odds-api spelling to ALIASES (or here).",
 
   "Spain": 2155,
   "Argentina": 2114,
