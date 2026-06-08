@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>betsu</title>
+
+<!-- PWA: installable at /m, opens fullscreen from the home screen -->
+<link rel="manifest" href="/m/manifest.webmanifest">
+<meta name="theme-color" content="#FBF9F6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="betsu">
+<link rel="apple-touch-icon" href="/m/assets/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/m/assets/betsu-logo.svg">
+
+<!-- betsu design system: tokens + styles -->
+<link rel="stylesheet" href="/m/_ds/betsu-design-system-f419232e-57b9-4ff6-aae5-6f3ec3e35118/styles.css">
+
+<style>
+  html, body { height: 100%; margin: 0; background: #FBF9F6; }
+  * { box-sizing: border-box; }
+  h1, h2, h3, p { margin: 0; }
+  body { overscroll-behavior-y: none; }
+  /* horizontally scrolling pill/chip rows — no visible scrollbar */
+  .hscroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .hscroll::-webkit-scrollbar { display: none; }
+  main::-webkit-scrollbar { width: 0; height: 0; }
+</style>
+</head>
+<body>
+  <div id="betsu-root"></div>
+
+  <!-- Vendored locally (no runtime CDN dependency); mirrors static/dashboard/ -->
+  <script src="/m/vendor/react.min.js"></script>
+  <script src="/m/vendor/react-dom.min.js"></script>
+  <script src="/m/vendor/babel.min.js"></script>
+  <script src="/m/vendor/chart.umd.min.js"></script>
+  <script src="/m/vendor/lucide.min.js"></script>
+
+  <!-- betsu design system bundle (plain JS) -->
+  <script src="/m/_ds/betsu-design-system-f419232e-57b9-4ff6-aae5-6f3ec3e35118/_ds_bundle.js"></script>
+
+  <!-- app (JSX) -->
+  <script type="text/babel" src="/m/util.jsx"></script>
+  <script type="text/babel" src="/m/store.jsx"></script>
+  <script type="text/babel" src="/m/charts.jsx"></script>
+  <script type="text/babel" src="/m/shared.jsx"></script>
+  <script type="text/babel" src="/m/screens-perf.jsx"></script>
+  <script type="text/babel" src="/m/screens-today.jsx"></script>
+  <script type="text/babel" src="/m/screens-allbets.jsx"></script>
+  <script type="text/babel" src="/m/app.jsx"></script>
+</body>
+</html>
