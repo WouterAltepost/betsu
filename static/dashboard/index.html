@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>betsu — performance</title>
+<link rel="stylesheet" href="_ds/betsu-design-system-f419232e-57b9-4ff6-aae5-6f3ec3e35118/styles.css">
+<style>
+  html, body { background: var(--bg-page); margin: 0; }
+  * { box-sizing: border-box; }
+  h1, h2, h3, p { margin: 0; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--warm-200); border-radius: 999px; border: 2px solid var(--bg-page); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Vendored locally (no runtime CDN dependency); see docs/dashboard_redesign_briefing.md §9 -->
+  <script src="vendor/react.min.js"></script>
+  <script src="vendor/react-dom.min.js"></script>
+  <script src="vendor/babel.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="betsu-bundle.js"></script>
+
+  <script src="data.js"></script>
+  <script type="text/babel" src="util.jsx"></script>
+  <script type="text/babel" src="store.jsx"></script>
+  <script type="text/babel" src="charts.jsx"></script>
+  <script type="text/babel" src="modules.jsx"></script>
+  <script type="text/babel" src="allbets.jsx"></script>
+  <script type="text/babel" src="layouts.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
