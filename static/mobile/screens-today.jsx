@@ -32,7 +32,7 @@ function TodayScreen({ store, variant }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <ScreenTitle title="today's value bets">
         <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, marginTop: 6, lineHeight: 1.45 }}>
-          <b style={{ color: 'var(--text-primary)' }}>{store.nMatchesToday} matches</b> scanned · <b style={{ color: 'var(--text-primary)' }}>{today.length} value bets</b> clear the 5% edge threshold{placedCount ? ` · ${placedCount} placed` : ''}{staked ? `, ${eur(staked)} staked` : ''}.
+          <b style={{ color: 'var(--text-primary)' }}>{today.length} value bet{today.length === 1 ? '' : 's'}</b> clear{today.length === 1 ? 's' : ''} the 5% edge threshold today{placedCount ? ` · ${placedCount} placed` : ''}{staked ? `, ${eur(staked)} staked` : ''}.
         </p>
       </ScreenTitle>
 
@@ -65,7 +65,7 @@ function TodayScreen({ store, variant }) {
       )}
 
       <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, padding: '4px 0 2px', fontStyle: 'italic' }}>
-        Paper unless you choose to back it. Bet responsibly.
+        Bet responsibly. Only stake what you can afford to lose.
       </p>
     </div>
   );

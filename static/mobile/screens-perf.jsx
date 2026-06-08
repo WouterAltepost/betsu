@@ -1,6 +1,6 @@
 /* betsu mobile — Performance screen. Two clearly-separated tracks:
  *   "Your money" — real € P&L on the bets you placed (the headline).
- *   "Model"      — calibration + paper ROI over ALL suggestions (what betsu is
+ *   "Model"      — calibration + model ROI over ALL suggestions (what betsu is
  *                  judged on). The hero treatment differs by direction.        */
 
 function HeroStat({ label, value, tone, onGrad = true }) {
@@ -104,7 +104,7 @@ function ModelPerfPanel({ store }) {
   const mp = store.computeModelPerf();
   const tiles = [
     { label: 'Suggestions', value: mp.suggestions, sub: `${mp.settled} settled` },
-    { label: 'Paper ROI', value: mp.settled ? pct(mp.roi_units, true) : '—', sub: 'flat 1u / bet', tone: mp.roi_units >= 0 ? 'pos' : 'neg' },
+    { label: 'Model ROI', value: mp.settled ? pct(mp.roi_units, true) : '—', sub: 'flat 1u / bet', tone: mp.roi_units >= 0 ? 'pos' : 'neg' },
     { label: 'Record', value: `${mp.wins}–${mp.losses}`, sub: mp.settled ? `${mp.hit_rate}% hit` : 'none settled' },
     { label: 'Avg edge', value: `+${mp.avg_edge}%`, sub: 'at entry' },
   ];
@@ -146,7 +146,7 @@ function PerformanceScreen({ store, variant }) {
       <SectionLabel kicker="Model" title="Does it beat the bookmakers?" desc="Measured over every suggestion betsu flagged, not just the bets you placed." />
       <ModelPerfPanel store={store} />
       <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, fontStyle: 'italic', padding: '2px 0' }}>
-        Paper unless you choose to back it. Bet responsibly.
+        Bet responsibly. Only stake what you can afford to lose.
       </p>
     </div>
   );

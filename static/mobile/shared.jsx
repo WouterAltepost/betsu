@@ -25,14 +25,10 @@ function AppHeader({ store }) {
     }}>
       <Logo size={26} markSrc={LOGO_SRC} />
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-        {atRisk > 0 ? (
+        {atRisk > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-full)', padding: '5px 11px', boxShadow: 'var(--shadow-xs)' }}>
             <Icon name="wallet" size={14} color="var(--warm-400)" />
             {eur(atRisk)} at risk
-          </span>
-        ) : (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-700)', background: 'var(--gold-100)', borderRadius: 'var(--radius-full)', padding: '5px 11px' }}>
-            paper
           </span>
         )}
       </div>
