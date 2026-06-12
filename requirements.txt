@@ -6,3 +6,7 @@ flask
 gunicorn
 gspread
 google-auth
+# xG layer (tools/xg.py): scrapes FBref (Opta xG) for INT-World Cup. Pinned for
+# reproducible Railway builds. Pulls heavier transitive deps (pandas, lxml, and a
+# seleniumbase chain) — FBref reads use plain HTTP, so no browser runs at runtime.
+soccerdata==1.9.0

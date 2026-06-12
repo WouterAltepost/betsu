@@ -15,9 +15,10 @@ TMP_DIR = os.path.join(BASE_DIR, ".tmp")
 # Weights are renormalised over whichever predictors are available for a match,
 # so a missing layer (e.g. no odds yet) does not break the blend.
 ENSEMBLE_WEIGHTS = {
-    "market": 0.50,   # de-vigged bookmaker odds — strongest single signal
+    "market": 0.40,   # de-vigged bookmaker odds — strongest single signal
     "elo":    0.30,   # World Football Elo model
     "poisson": 0.20,  # Dixon-Coles goal model (phase 1)
+    "xg":     0.05,   # Expected Goals layer (phase 1, optional)
     # "llm" acts as an adjustment layer, not a base weight (see ensemble.py)
 }
 
@@ -137,3 +138,35 @@ RESULTS_LOOKBACK_DAYS = int(os.environ.get("RESULTS_LOOKBACK_DAYS", "3"))
 
 # --- Telegram ---------------------------------------------------------------
 TELEGRAM_API_BASE = "https://api.telegram.org"
+
+# --- xG (Expected Goals) layer -----------------------------------------------
+# Expected Goals measures shot quality and is more stable than raw goals. Real
+# WC xG is pulled from FBref (Opta-sourced) via soccerdata, turned into 1X2 by
+# reusing the Poisson grid (poisson.markets_from_lambdas), with FBref team names
+# reconciled through the Elo resolver. The layer is fully fail-safe — any error,
+# or too few played matches, yields None and the blend renormalises. Off by
+# default; enable on Railway once the WC slate has enough played matches for xG.
+XG_ENABLED = os.environ.get("XG_ENABLED", "0").strip() in ("1", "true", "True")
+XG_SEASON = int(os.environ.get("XG_SEASON", "2026"))           # FBref season id for INT-World Cup
+XG_MATCHES_BACK = int(os.environ.get("XG_MATCHES_BACK", "5"))  # average over each team's last N matches
+XG_MIN_MATCHES = int(os.environ.get("XG_MIN_MATCHES", "2"))    # need >= this many played matches of xG
+XG_CACHE_HOURS = int(os.environ.get("XG_CACHE_HOURS", "24"))   # rebuild the in-process xG table daily
+
+# --- Variance modeling for extreme scores -----------------------------------
+# Extends Dixon-Coles to better predict high-scoring games (4+, 5-0, etc.)
+# Increases tail probability weight when one team is much stronger (large Elo gap)
+VARIANCE_SCALING_ENABLED = os.environ.get("VARIANCE_SCALING_ENABLED", "0").strip() in ("1", "true", "True")
+VARIANCE_ELO_THRESHOLD = int(os.environ.get("VARIANCE_ELO_THRESHOLD", "20"))  # apply if |elo_diff| > this
+VARIANCE_SCALE_FACTOR = float(os.environ.get("VARIANCE_SCALE_FACTOR", "0.15"))  # multiplier for variance
+
+# --- Sharp market line (Pinnacle) -------------------------------------------
+# When enabled, the market layer of the blend is estimated from a single sharp
+# book's de-vigged 1X2 (Pinnacle) instead of best-price-across-books — a sharp
+# book is the textbook market estimate. The actual BET price stays best-price-
+# across-books. Pinnacle already rides the eu-region the-odds-api payload we
+# fetch, and billing is per market per region (independent of bookmaker count),
+# so reading its line costs ZERO extra credits. Single switch, off by default.
+SHARP_SOFT_MONITORING_ENABLED = os.environ.get("SHARP_SOFT_MONITORING_ENABLED", "0").strip() in ("1", "true", "True")
+# the-odds-api's bookmaker key for the sharp book (confirmed present in the eu
+# payload). Read out of the bulk /odds response — no separate request.
+SHARP_BOOKMAKER_KEY = "pinnacle"

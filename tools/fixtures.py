@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (ODDS_API_BASE, ODDS_REGION, ODDS_MARKETS,
-                    ODDS_SPORT_WORLDCUP, OU_LINE)
+                    ODDS_SPORT_WORLDCUP, OU_LINE, SHARP_BOOKMAKER_KEY)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 API_KEY = os.environ.get("ODDS_API_KEY")
@@ -73,6 +73,31 @@ def _best_odds(event):
                 if key not in best or price > best[key]:
                     best[key] = price
     return best
+
+
+def _book_h2h_odds(event, book_key):
+    """1X2 decimal odds from a single named bookmaker, or {} if absent.
+
+    Used to read a sharp book's (e.g. Pinnacle) own h2h line out of the same
+    bulk payload we already fetch — a single sharp book is the textbook market
+    estimate, and Pinnacle rides the eu region for free."""
+    home, away = event["home_team"], event["away_team"]
+    out = {}
+    for bk in event.get("bookmakers", []):
+        if bk.get("key") != book_key:
+            continue
+        for market in bk.get("markets", []):
+            if market.get("key") != "h2h":
+                continue
+            for oc in market["outcomes"]:
+                name, price = oc["name"], oc["price"]
+                if name == home:
+                    out["1"] = price
+                elif name == away:
+                    out["2"] = price
+                elif name.lower() == "draw":
+                    out["X"] = price
+    return out
 
 
 def _best_totals(event, line=OU_LINE):
@@ -166,13 +191,18 @@ def get_matches(target_date=None, sport=ODDS_SPORT_WORLDCUP, region=ODDS_REGION,
             continue  # need full 1X2 to value a bet
         totals = _best_totals(ev)        # {} when the 2.5 line isn't offered
         btts = _best_btts(ev)            # {} when btts isn't offered
+        # Sharp line: a single sharp book's de-vig is the textbook market
+        # estimate. Pinnacle already rides this payload, so it's free to read.
+        sharp_raw = _book_h2h_odds(ev, SHARP_BOOKMAKER_KEY)
+        sharp_probs = _devig(sharp_raw) if {"1", "X", "2"} <= set(sharp_raw) else None
         matches.append({
             "event_id": ev["id"],          # needed for the per-event BTTS fetch
             "home_team": ev["home_team"],
             "away_team": ev["away_team"],
             "commence_time": commence,
             "odds": odds,
-            "market_probs": _devig(odds),
+            "market_probs": _devig(odds),        # best-price devig (default market layer)
+            "sharp_market_probs": sharp_probs,   # single-book (Pinnacle) devig, or None
             "totals_odds": totals if {"Over", "Under"} <= set(totals) else None,
             "btts_odds": btts if {"Yes", "No"} <= set(btts) else None,
         })

@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS,
                     LLM_ENABLED, AUTO_RESULTS_ENABLED, BTTS_ENABLED,
-                    BTTS_CACHE_HOURS)
+                    BTTS_CACHE_HOURS, XG_ENABLED, SHARP_SOFT_MONITORING_ENABLED)
 from tools import elo as elo_mod
 from tools import ensemble as ensemble_mod
 from tools import poisson as poisson_mod
@@ -109,7 +109,19 @@ def run_morning(run_date, dry_run=False, window_hours=None):
         m_date = (m.get("commence_time") or "")[:10] if window_hours is not None else run_date
         m_date = m_date or run_date
         neutral = _neutral_and_host(home, away)
-        preds = {"market": m["market_probs"]}
+
+        # Market layer source: best-price-across-books de-vig by default. With
+        # the sharp layer on and Pinnacle pricing this match, estimate the
+        # market from Pinnacle's own de-vig instead — a single sharp book is the
+        # textbook market estimate. The actual BET price still uses best-price-
+        # across-books (m["odds"] -> find_value_bets below); estimating the
+        # market from a sharp book while betting the best price is intentional.
+        odds_for_blend = m["market_probs"]
+        if SHARP_SOFT_MONITORING_ENABLED and m.get("sharp_market_probs"):
+            odds_for_blend = m["sharp_market_probs"]
+            print(f"  [sharp: using {fixtures_mod.SHARP_BOOKMAKER_KEY} line for {home} vs {away}]")
+
+        preds = {"market": odds_for_blend}
 
         # Elo guard: only include the Elo layer when BOTH teams are seeded.
         # An unseeded team defaults to 1700, which skews the 30%-weighted Elo
@@ -126,8 +138,30 @@ def run_morning(run_date, dry_run=False, window_hours=None):
             print(f"  [elo/poisson skipped — no seed for: {', '.join(unseeded)}]")
         else:
             preds["elo"] = elo_mod.predict(home, away, ratings, neutral=neutral)
-            poisson_mkts = poisson_mod.markets(home, away, ratings, neutral=neutral)
-            preds["poisson"] = poisson_mkts["1x2"]
+            # Defence in depth: a Poisson failure drops that layer (and the
+            # goal-based markets) for this match and the blend renormalises —
+            # it must never take down a live run.
+            try:
+                poisson_mkts = poisson_mod.markets(home, away, ratings, neutral=neutral)
+                preds["poisson"] = poisson_mkts["1x2"]
+            except Exception as e:
+                poisson_mkts = None
+                print(f"  [poisson: skipped — {type(e).__name__}]")
+
+            # xG layer (Expected Goals): optional 5% weight, fully fail-safe.
+            # get_xg_prediction returns 1X2 from FBref team xG (via the Poisson
+            # grid) or None — too few played matches, an unmapped team, or any
+            # scrape/import error all yield None and the blend renormalises. The
+            # guard is defence in depth; the layer must never take down a run.
+            if XG_ENABLED:
+                try:
+                    from tools import xg as xg_mod
+                    xg_prob = xg_mod.get_xg_prediction(home, away, ratings)
+                    if xg_prob:
+                        preds["xg"] = xg_prob
+                        print(f"  [xg: {xg_prob}]")
+                except Exception as e:
+                    print(f"  [xg: skipped — {type(e).__name__}]")
 
             # LLM context nudge (1X2 only): same seeded gate as Elo/Poisson, and
             # only when explicitly enabled. The layer is fail-safe — a failure

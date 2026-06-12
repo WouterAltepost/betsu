@@ -30,11 +30,23 @@ def _normalise(p):
 
 def blend(predictions, llm_adjust=None):
     """
-    predictions: dict mapping predictor name -> {"1","X","2"} probs.
-                 Only names present in ENSEMBLE_WEIGHTS contribute.
-    llm_adjust:  optional dict of additive nudges per outcome, e.g.
-                 {"2": +0.04, "1": -0.04}. Bounded and renormalised.
-    Returns blended {"1","X","2"}.
+    Blend predictor probabilities into one 1X2 distribution.
+
+    Args:
+        predictions: dict mapping predictor name -> {"1","X","2"} probs.
+                     Only names present in ENSEMBLE_WEIGHTS contribute.
+                     Supported: "market", "elo", "poisson", "xg"
+        llm_adjust:  optional dict of additive nudges per outcome, e.g.
+                     {"2": +0.04, "1": -0.04}. Bounded and renormalised.
+
+    Returns:
+        blended {"1","X","2"} probabilities (normalized to sum to 1).
+
+    Logic:
+        1. Keep only predictors present in ENSEMBLE_WEIGHTS and non-None
+        2. Renormalize weights over available predictors
+        3. Blend using renormalized weights
+        4. Apply optional LLM adjustment and renormalize again
     """
     present = {n: p for n, p in predictions.items()
                if n in ENSEMBLE_WEIGHTS and p is not None}

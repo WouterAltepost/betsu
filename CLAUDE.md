@@ -25,9 +25,10 @@ surfaces (dashboard, Telegram card) speak in euros on placed bets.
 ## The ensemble (the "predictor")
 
 One blended probability per match, combining:
-- **market** — de-vigged bookmaker odds (the-odds-api). Strongest single signal, and our benchmark.
+- **market** — de-vigged bookmaker odds (the-odds-api). Strongest single signal, and our benchmark. Optionally estimated from a single sharp book's line (Pinnacle, read free from the same payload) when `SHARP_SOFT_MONITORING_ENABLED` — the *bet* price stays best-price-across-books.
 - **elo** — World Football Elo model, neutral-venue, self-updating after results.
 - **poisson** — Dixon-Coles goal model (phase 1; unlocks Over/Under + BTTS).
+- **xg** — FBref Expected Goals (Opta), turned into 1X2 via the Poisson grid (phase 1; `XG_ENABLED`, off until WC xG is published and validated).
 - **llm** — Claude news/context nudge for injuries, dead rubbers, heat (phase 1; an adjustment, not a base model).
 
 Weights live in `config.py:ENSEMBLE_WEIGHTS` and renormalise over whatever layers
@@ -46,7 +47,7 @@ records which bets they placed and the real € stake — see the dashboard + th
 ## Layers
 
 **Tools** (`tools/`, deterministic execution):
-- `fixtures.py` — fetch today's fixtures + odds, best price per outcome, de-vig to market probs; plus `fetch_event_btts` for the per-event BTTS price (an additional market, fetched + cached per event)
+- `fixtures.py` — fetch today's fixtures + odds, best price per outcome, de-vig to market probs; plus `fetch_event_btts` for the per-event BTTS price (an additional market, fetched + cached per event), and a `sharp_market_probs` field — a single sharp book's (Pinnacle) de-vig read free from the same payload
 - `elo.py` — Elo ratings + 1X2 probabilities + result-based updates
 - `ensemble.py` — blend predictor probabilities (+ optional LLM nudge)
 - `value.py` — value bets from blended probs vs odds, with Kelly guide
@@ -55,7 +56,8 @@ records which bets they placed and the real € stake — see the dashboard + th
   (`placed` / `staked_real` / `manual_result` / `pnl_eur`). `update_bet_user_fields`
   writes those; `effective_result` (manual override > auto grade) is read everywhere;
   `summary()` returns a `real` € block plus the units keys
-- `poisson.py` — Dixon-Coles goal model (1X2 + Over/Under 2.5 + BTTS)
+- `poisson.py` — Dixon-Coles goal model (1X2 + Over/Under 2.5 + BTTS); `markets_from_lambdas` turns explicit expected goals into the same market dict (shared with the xG layer)
+- `xg.py` — Expected Goals layer: pulls WC team xG from FBref via `soccerdata`, reconciles names through the Elo resolver, and converts xG→1X2 with the Poisson grid. Fail-safe and off by default (`XG_ENABLED`). NB: soccerdata's FBref reader drives a headless browser (Cloudflare), so enabling it on a server needs Chrome available
 - `results_fetch.py` — pull finished WC scores from football-data.org, reconcile
   team names to the store, write to Results so grading settles hands-off
 - `message.py` — format the Telegram bet card and results recap
@@ -108,6 +110,9 @@ on Railway). The Flask service also reads `RUN_API_KEY` and optional
 ## Data sources
 
 - Fixtures + odds: the-odds-api.com (free tier). Sport key `soccer_fifa_world_cup`.
+  The `eu` payload includes Pinnacle, so the optional sharp market layer costs no extra credits.
+- xG: FBref (Opta-sourced) via the `soccerdata` library, league `INT-World Cup`.
+  Off by default and only meaningful once WC matches are played; national-team xG is published late.
 - Elo seeds: `data/elo_seed.json` — APPROXIMATE starting values, refresh from
   eloratings.net before the tournament. The model refines them as results land.
 - Store: Google Sheets (Bets / Results / Matches / Summary tabs) — the single

@@ -39,12 +39,22 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (ELO_HOME_ADVANTAGE, OU_LINE, POISSON_BASE_TOTAL_GOALS,
                     POISSON_DC_RHO, POISSON_GOAL_FLOOR, POISSON_MAX_GOALS,
-                    POISSON_SUP_DIVISOR)
+                    POISSON_SUP_DIVISOR, VARIANCE_SCALING_ENABLED,
+                    VARIANCE_ELO_THRESHOLD, VARIANCE_SCALE_FACTOR)
 from tools import elo as elo_mod
 
 
 def expected_goals(home, away, ratings, neutral=True):
-    """Map the Elo gap to (lambda_home, lambda_away) expected goals."""
+    """Map the Elo gap to (lambda_home, lambda_away) expected goals.
+
+    Args:
+        home, away: Team names
+        ratings: Elo ratings dict
+        neutral: Whether to apply home advantage (False for non-neutral venues)
+
+    Returns:
+        (lambda_home, lambda_away, elo_diff) — the third is used for variance scaling
+    """
     rh = elo_mod.get_rating(home, ratings)
     ra = elo_mod.get_rating(away, ratings)
     adv = 0 if neutral else ELO_HOME_ADVANTAGE
@@ -53,7 +63,7 @@ def expected_goals(home, away, ratings, neutral=True):
     supremacy = diff / POISSON_SUP_DIVISOR
     lam_home = (POISSON_BASE_TOTAL_GOALS + supremacy) / 2.0
     lam_away = (POISSON_BASE_TOTAL_GOALS - supremacy) / 2.0
-    return max(lam_home, POISSON_GOAL_FLOOR), max(lam_away, POISSON_GOAL_FLOOR)
+    return max(lam_home, POISSON_GOAL_FLOOR), max(lam_away, POISSON_GOAL_FLOOR), diff
 
 
 def _poisson_pmf(k, lam):
@@ -73,8 +83,16 @@ def _tau(i, j, lam, mu, rho):
     return 1.0
 
 
-def score_matrix(lam_home, lam_away, max_goals=POISSON_MAX_GOALS, rho=POISSON_DC_RHO):
-    """Normalised P(home=i, away=j) grid with the Dixon-Coles correction."""
+def score_matrix(lam_home, lam_away, max_goals=POISSON_MAX_GOALS, rho=POISSON_DC_RHO,
+                 elo_diff=0.0):
+    """Normalised P(home=i, away=j) grid with the Dixon-Coles correction.
+
+    Args:
+        lam_home, lam_away: Expected goals (lambdas)
+        max_goals: Grid size (0..max_goals each side)
+        rho: Dixon-Coles correlation (default POISSON_DC_RHO)
+        elo_diff: Elo rating difference (home - away), used for variance scaling
+    """
     home_pmf = [_poisson_pmf(i, lam_home) for i in range(max_goals + 1)]
     away_pmf = [_poisson_pmf(j, lam_away) for j in range(max_goals + 1)]
 
@@ -91,6 +109,69 @@ def score_matrix(lam_home, lam_away, max_goals=POISSON_MAX_GOALS, rho=POISSON_DC
         for i in range(max_goals + 1):
             for j in range(max_goals + 1):
                 grid[i][j] /= total
+
+    # Apply variance scaling for extreme scores (blowout games)
+    if VARIANCE_SCALING_ENABLED and abs(elo_diff) > VARIANCE_ELO_THRESHOLD:
+        grid = _apply_variance_scaling(grid, elo_diff, max_goals)
+
+    return grid
+
+
+def _apply_variance_scaling(grid, elo_diff, max_goals):
+    """
+    Increase tail probability weight for extreme scores when one team is much stronger.
+
+    When home team Elo >> away team, they're more likely to win big (5-0, 6-0)
+    than to win narrowly. Redistribute a small amount of probability mass from
+    mid-range outcomes (2-3 goals) to extremes (0, 4+).
+
+    Args:
+        grid: Current probability matrix (normalized)
+        elo_diff: Home Elo - Away Elo
+        max_goals: Grid size
+
+    Returns:
+        Modified grid with increased tail probabilities
+    """
+    variance_scale = 1.0 + abs(elo_diff) * VARIANCE_SCALE_FACTOR / 100.0
+    # Limit the scaling to avoid excessive distortion
+    variance_scale = min(variance_scale, 1.3)
+
+    # Identify mid-range and extreme cells
+    redistribution_amount = 0.01  # Move 1% of probability mass
+    total_redistribution = 0.0
+
+    # Collect probability from mid-range (2-3 goals for both sides)
+    for i in range(2, 4):
+        for j in range(2, 4):
+            if i < len(grid) and j < len(grid[i]):
+                amount = grid[i][j] * redistribution_amount
+                grid[i][j] -= amount
+                total_redistribution += amount
+
+    if total_redistribution > 0:
+        # Distribute to extremes (0 goals, 4+ goals)
+        # Weight distribution by elo_diff direction
+        if elo_diff > 0:  # Home favored; boost home blowout wins and away shutouts
+            # Home big wins (4+)
+            for i in range(4, max_goals + 1):
+                if i < len(grid):
+                    grid[i][0] = min(1.0, grid[i][0] + total_redistribution * 0.4 / max_goals)
+                    grid[i][1] = min(1.0, grid[i][1] + total_redistribution * 0.1 / max_goals)
+        else:  # Away favored
+            # Away big wins (4+)
+            for j in range(4, max_goals + 1):
+                if j < len(grid[0]):
+                    grid[0][j] = min(1.0, grid[0][j] + total_redistribution * 0.4 / max_goals)
+                    grid[1][j] = min(1.0, grid[1][j] + total_redistribution * 0.1 / max_goals)
+
+    # Renormalize
+    total = sum(sum(row) for row in grid)
+    if total > 0:
+        for i in range(len(grid)):
+            for j in range(len(grid[i])):
+                grid[i][j] /= total
+
     return grid
 
 
@@ -123,15 +204,30 @@ def _markets_from_grid(grid, line=OU_LINE):
 
 def predict(home, away, ratings, neutral=True):
     """1X2 probabilities for the ensemble blend."""
-    lam_home, lam_away = expected_goals(home, away, ratings, neutral=neutral)
-    grid = score_matrix(lam_home, lam_away)
+    lam_home, lam_away, elo_diff = expected_goals(home, away, ratings, neutral=neutral)
+    grid = score_matrix(lam_home, lam_away, elo_diff=elo_diff)
     return _markets_from_grid(grid)["1x2"]
 
 
 def markets(home, away, ratings, neutral=True):
     """Full market dict: 1x2, ou (at OU_LINE), btts, plus the lambdas used."""
-    lam_home, lam_away = expected_goals(home, away, ratings, neutral=neutral)
-    grid = score_matrix(lam_home, lam_away)
+    lam_home, lam_away, elo_diff = expected_goals(home, away, ratings, neutral=neutral)
+    grid = score_matrix(lam_home, lam_away, elo_diff=elo_diff)
+    out = _markets_from_grid(grid)
+    out["lambdas"] = {"home": round(lam_home, 3), "away": round(lam_away, 3)}
+    out["line"] = OU_LINE
+    return out
+
+
+def markets_from_lambdas(lam_home, lam_away):
+    """Full market dict from explicit expected goals (no Elo, no variance scaling).
+
+    Shared by the xG layer, which derives its own lambdas from team xG and so
+    bypasses the Elo-gap mapping. Passing elo_diff=0.0 also means variance
+    scaling never fires here (it gates on |elo_diff| > VARIANCE_ELO_THRESHOLD)."""
+    lam_home = max(lam_home, POISSON_GOAL_FLOOR)
+    lam_away = max(lam_away, POISSON_GOAL_FLOOR)
+    grid = score_matrix(lam_home, lam_away, elo_diff=0.0)  # elo_diff=0 -> no variance
     out = _markets_from_grid(grid)
     out["lambdas"] = {"home": round(lam_home, 3), "away": round(lam_away, 3)}
     out["line"] = OU_LINE

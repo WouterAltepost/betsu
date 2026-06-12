@@ -31,9 +31,17 @@ def kelly_units(prob, odds, fraction=KELLY_FRACTION):
 
 def find_value_bets(match_date, home, away, model_probs, odds_1x2):
     """
-    model_probs: {"1","X","2"} blended probabilities.
-    odds_1x2:    {"1","X","2"} decimal odds from the book (best available).
-    Returns a list of value bet dicts for this match (may be empty).
+    Find 1X2 value bets by comparing model probabilities to bookmaker odds.
+
+    Args:
+        match_date: Match date (ISO string)
+        home, away: Team names
+        model_probs: {"1","X","2"} blended probabilities (should sum to 1)
+        odds_1x2:    {"1","X","2"} decimal odds from the book (best available, or sharpest)
+
+    Returns:
+        A list of value bet dicts for this match (may be empty).
+        Each bet includes model_prob, odds, edge, and Kelly stake guide.
     """
     bets = []
     for o in OUTCOMES:
