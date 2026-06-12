@@ -386,16 +386,7 @@ function BetCard({
       overflow: 'hidden',
       ...style
     }
-  }, top ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 3,
-      background: 'var(--brand-gradient)'
-    }
-  }) : null, /*#__PURE__*/React.createElement("div", {
+  }, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
