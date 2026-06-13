@@ -23,7 +23,9 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (ODDS_API_BASE, ODDS_REGION, ODDS_MARKETS,
-                    ODDS_SPORT_WORLDCUP, OU_LINE, SHARP_BOOKMAKER_KEY)
+                    ODDS_SPORT_WORLDCUP, OU_LINE, SHARP_BOOKMAKER_KEY,
+                    ODDS_MIN_OVERROUND, ODDS_MAX_OVERROUND,
+                    ODDS_OUTLIER_LOW, ODDS_OUTLIER_HIGH, ODDS_OUTLIER_MIN_BOOKS)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 API_KEY = os.environ.get("ODDS_API_KEY")
@@ -52,26 +54,89 @@ def _devig(odds_1x2):
     return {o: round(raw[o] / total, 4) for o in raw}
 
 
-def _best_odds(event):
-    """Best (highest) decimal odds per outcome across all bookmakers."""
-    home, away = event["home_team"], event["away_team"]
-    best = {}
-    for bk in event.get("bookmakers", []):
-        for market in bk.get("markets", []):
-            if market["key"] != "h2h":
+def _median(values):
+    """Median of a non-empty list (no numpy dependency)."""
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
+
+
+def _book_line(bk, home, away):
+    """Extract a single book's own 1/X/2 decimal prices, {} if none."""
+    line = {}
+    for market in bk.get("markets", []):
+        if market.get("key") != "h2h":
+            continue
+        for oc in market["outcomes"]:
+            name, price = oc["name"], oc["price"]
+            if name == home:
+                key = "1"
+            elif name == away:
+                key = "2"
+            elif name.lower() == "draw":
+                key = "X"
+            else:
                 continue
-            for oc in market["outcomes"]:
-                name, price = oc["name"], oc["price"]
-                if name == home:
-                    key = "1"
-                elif name == away:
-                    key = "2"
-                elif name.lower() == "draw":
-                    key = "X"
-                else:
-                    continue
-                if key not in best or price > best[key]:
-                    best[key] = price
+            if price and price > 1.0:
+                line[key] = price
+    return line
+
+
+def _best_odds(event, min_overround=ODDS_MIN_OVERROUND,
+               max_overround=ODDS_MAX_OVERROUND,
+               outlier_low=ODDS_OUTLIER_LOW, outlier_high=ODDS_OUTLIER_HIGH,
+               outlier_min_books=ODDS_OUTLIER_MIN_BOOKS):
+    """Best (highest) decimal odds per outcome across TRUSTWORTHY bookmakers.
+
+    Two coherence checks gate each book before line-shopping, so a naive max()
+    can't pick a polluted longshot price as the "best" (see
+    docs/fix_inflated_odds_briefing.md):
+
+    1. Overround band — a book's own 1X2 prices must sum to a sane overround
+       (real books carry 1-20% vig). Catches stale/garbage lines whose prices
+       are individually wrong.
+    2. Consensus outlier — the real catch for swapped/mislabeled lines. A garbled
+       book (e.g. the favourite's short price misfiled onto the Draw slot) keeps a
+       normal overround, so (1) can't see it; but each of its legs is a gross
+       outlier vs the cross-book median. We take a per-outcome median and DROP THE
+       WHOLE BOOK if any leg falls outside [outlier_low, outlier_high] x median —
+       a garbled line is untrustworthy on every leg, not just one. Only applied
+       with >= outlier_min_books full 1X2 lines, so the median is stable.
+
+    The best (highest) price per outcome is then taken across the surviving
+    books, so legitimate line-shopping across good books is preserved. A book
+    without a full 1X2 line (e.g. totals-only) skips both checks and still
+    contributes whatever prices it has."""
+    home, away = event["home_team"], event["away_team"]
+    lines = [_book_line(bk, home, away) for bk in event.get("bookmakers", [])]
+
+    # Per-outcome median across every book that quotes that outcome. Robust to a
+    # handful of bad books (median is unaffected by a minority of outliers).
+    medians = {}
+    for k in ("1", "X", "2"):
+        prices = [ln[k] for ln in lines if k in ln]
+        if prices:
+            medians[k] = _median(prices)
+    n_full = sum(1 for ln in lines if {"1", "X", "2"} <= set(ln))
+    use_outlier = n_full >= outlier_min_books and len(medians) == 3
+
+    best = {}
+    for line in lines:
+        if {"1", "X", "2"} <= set(line):
+            overround = sum(1.0 / line[k] for k in ("1", "X", "2"))
+            if not (min_overround <= overround <= max_overround):
+                continue            # incoherent book (stale/garbage) → skip it
+        if use_outlier:
+            bad = any(
+                k in medians and not (outlier_low * medians[k] <= price
+                                      <= outlier_high * medians[k])
+                for k, price in line.items())
+            if bad:
+                continue            # garbled/mislabeled book → drop the whole line
+        for k, price in line.items():
+            if k not in best or price > best[k]:
+                best[k] = price
     return best
 
 

@@ -136,6 +136,116 @@ def t_run_daily():
     print("  run_daily imports; run_morning/run_grade present")
 
 
+def t_best_odds_coherence():
+    """_best_odds excludes a side-swapped/stale book and returns sane prices.
+
+    See docs/fix_inflated_odds_briefing.md. A polluted book prices the favourite
+    as a longshot (overround far below 1.0); it must not poison the best price."""
+    from tools import fixtures as fx
+    event = {
+        "home_team": "Brazil", "away_team": "Morocco",
+        "bookmakers": [
+            # Coherent book: Brazil clear favourite, ~5% vig.
+            {"key": "good", "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Brazil", "price": 1.60},
+                {"name": "Draw", "price": 4.00},
+                {"name": "Morocco", "price": 5.50},
+            ]}]},
+            # Side-swapped/stale book: the favourite (Brazil) priced as a
+            # longshot. Its overround falls far below 1.0 (computed in the
+            # assert below), outside [1.00, 1.20], so the book is dropped.
+            {"key": "bad", "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Brazil", "price": 5.95},
+                {"name": "Draw", "price": 4.50},
+                {"name": "Morocco", "price": 6.10},
+            ]}]},
+        ],
+    }
+    best = fx._best_odds(event)
+    # The bad book's overround = 1/5.95 + 1/4.5 + 1/6.10 ≈ 0.168+0.222+0.164
+    # = 0.554, far below 1.0 → excluded. So Brazil keeps the good 1.60, NOT 5.95.
+    assert best["1"] == 1.60, f"expected coherent 1.60 for Brazil, got {best['1']}"
+    assert best["2"] == 5.50, f"expected coherent 5.50 for Morocco, got {best['2']}"
+    print(f"  side-swapped book excluded; best={best}")
+
+
+def t_best_odds_garbled_book():
+    """_best_odds drops a garbled/mislabeled book (normal overround, gross median
+    outliers) — the real-world marathonbet case from 2026-06-13.
+
+    See docs/fix_inflated_odds_briefing.md. marathonbet misfiled Brazil's short
+    price onto the Draw slot (1=5.95 X=1.22 2=8.00, overround 1.11 — passes the
+    band), so the overround filter alone let it through and max() picked its
+    5.95/8.00 longshot prices. Consensus outlier rejection must exclude it."""
+    from tools import fixtures as fx
+    # 6 coherent books clustered on the true line + 1 garbled book (marathonbet).
+    coherent = [
+        ("a", 1.62, 3.80, 5.70), ("b", 1.68, 3.65, 5.50),
+        ("c", 1.70, 3.80, 5.72), ("d", 1.70, 3.75, 5.60),
+        ("e", 1.72, 3.90, 6.00), ("f", 1.72, 3.85, 5.80),
+    ]
+    bks = [{"key": k, "markets": [{"key": "h2h", "outcomes": [
+        {"name": "Brazil", "price": o1},
+        {"name": "Draw", "price": ox},
+        {"name": "Morocco", "price": o2}]}]} for k, o1, ox, o2 in coherent]
+    bks.append({"key": "marathonbet", "markets": [{"key": "h2h", "outcomes": [
+        {"name": "Brazil", "price": 5.95},
+        {"name": "Draw", "price": 1.22},
+        {"name": "Morocco", "price": 8.00}]}]})
+    event = {"home_team": "Brazil", "away_team": "Morocco", "bookmakers": bks}
+    best = fx._best_odds(event)
+    assert best["1"] == 1.72, f"Brazil should be the consensus best 1.72, got {best['1']}"
+    assert best["2"] == 6.00, f"Morocco should be the consensus best 6.00, got {best['2']}"
+    assert best["X"] == 3.90, f"Draw should be the consensus best 3.90, got {best['X']}"
+    # And the de-vig of the cleaned best odds must rate Brazil the clear favourite.
+    probs = fx._devig(best)
+    assert probs["1"] > 0.5, f"cleaned market should favour Brazil, got {probs}"
+    print(f"  garbled book dropped; best={best}  devig={probs}")
+
+
+def t_edge_ceiling():
+    """A fabricated +300% edge is dropped by MAX_PLAUSIBLE_EDGE."""
+    from tools import value as value_mod
+    from config import MAX_PLAUSIBLE_EDGE
+    # model 81% on a price of 5.45 → edge = 0.81*5.45 - 1 = 3.41 (+341%).
+    probs = {"1": 0.81, "X": 0.12, "2": 0.07}
+    odds = {"1": 5.45, "X": 3.0, "2": 8.0}
+    bets = value_mod.find_value_bets("2026-06-13", "Switzerland", "Qatar", probs, odds)
+    assert all(b["edge"] <= MAX_PLAUSIBLE_EDGE for b in bets), \
+        f"an implausible edge survived the ceiling: {bets}"
+    assert not any(b["selection"] == "1" for b in bets), \
+        "the +341% Switzerland edge was NOT dropped"
+    print(f"  MAX_PLAUSIBLE_EDGE={MAX_PLAUSIBLE_EDGE}; absurd edge dropped, bets={bets}")
+
+
+def t_both_sides_guard():
+    """Both mutually-exclusive 1X2 sides qualifying → keep only the best side."""
+    from tools import value as value_mod
+    # Construct a case where home and away both clear MIN_EDGE but stay under the
+    # ceiling: home edge ~0.10, away edge ~0.20. Only the away side survives.
+    probs = {"1": 0.55, "X": 0.05, "2": 0.40}
+    odds = {"1": 2.0, "X": 3.0, "2": 3.0}   # 1: .55*2-1=.10 ; 2: .40*3-1=.20
+    bets = value_mod.find_value_bets("2026-06-13", "A", "B", probs, odds)
+    assert len(bets) == 1, f"both-sides guard failed, got {len(bets)} bets: {bets}"
+    assert bets[0]["selection"] == "2", "guard kept the wrong (lower-edge) side"
+    print(f"  both-sides collapsed to single best side: {bets[0]['selection_label']}")
+
+
+def t_sharp_band():
+    """A best price far longer than the sharp line is dropped (sharp-band)."""
+    from tools import value as value_mod
+    # Sharp says home is a 0.60 favourite, but best price implies only 0.17
+    # (odds 5.95) — far below 0.6*0.60=0.36 → dropped even though edge is huge.
+    probs = {"1": 0.60, "X": 0.25, "2": 0.15}
+    odds = {"1": 5.95, "X": 3.5, "2": 5.0}
+    sharp = {"1": 0.60, "X": 0.25, "2": 0.15}
+    bets = value_mod.find_value_bets("2026-06-13", "Brazil", "Morocco",
+                                     probs, odds, sharp_probs=sharp)
+    assert not any(b["selection"] == "1" for b in bets), \
+        f"polluted home price survived the sharp band: {bets}"
+    print(f"  sharp-band dropped the polluted home price; bets={bets}")
+
+
 # Guarded under __main__ so pytest can import this file during collection
 # without executing the suite (which calls sys.exit and would abort the run).
 if __name__ == "__main__":
@@ -150,6 +260,11 @@ if __name__ == "__main__":
         ("poisson", t_poisson),
         ("ensemble", t_ensemble),
         ("run_daily import", t_run_daily),
+        ("best_odds coherence", t_best_odds_coherence),
+        ("best_odds garbled book", t_best_odds_garbled_book),
+        ("edge ceiling", t_edge_ceiling),
+        ("both-sides guard", t_both_sides_guard),
+        ("sharp band", t_sharp_band),
     ]:
         check(_name, _fn)
 

@@ -13,7 +13,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import MIN_EDGE, FLAT_STAKE_UNITS, KELLY_FRACTION
+from config import (MIN_EDGE, MAX_PLAUSIBLE_EDGE, FLAT_STAKE_UNITS,
+                    KELLY_FRACTION, SHARP_IMPLIED_MIN_RATIO)
 
 OUTCOMES = ("1", "X", "2")
 LABEL = {"1": "Home", "X": "Draw", "2": "Away"}
@@ -29,7 +30,8 @@ def kelly_units(prob, odds, fraction=KELLY_FRACTION):
     return max(0.0, round(full * fraction, 3))
 
 
-def find_value_bets(match_date, home, away, model_probs, odds_1x2):
+def find_value_bets(match_date, home, away, model_probs, odds_1x2,
+                    sharp_probs=None):
     """
     Find 1X2 value bets by comparing model probabilities to bookmaker odds.
 
@@ -38,19 +40,36 @@ def find_value_bets(match_date, home, away, model_probs, odds_1x2):
         home, away: Team names
         model_probs: {"1","X","2"} blended probabilities (should sum to 1)
         odds_1x2:    {"1","X","2"} decimal odds from the book (best available, or sharpest)
+        sharp_probs: optional {"1","X","2"} sharp-book (Pinnacle) de-vig. When
+                     present, a selection is dropped if its best-price implied
+                     prob is far below the sharp implied (a polluted price).
 
     Returns:
         A list of value bet dicts for this match (may be empty).
         Each bet includes model_prob, odds, edge, and Kelly stake guide.
+
+    Fail-safe guards (defend against stale/incoherent odds, see
+    docs/fix_inflated_odds_briefing.md):
+      - edge ceiling: an edge above MAX_PLAUSIBLE_EDGE is a data fault, dropped.
+      - sharp-band: best price far longer than the sharp line is dropped.
+      - both-sides invariant: a properly de-vigged 1X2 market can never carry
+        genuine value on two mutually exclusive outcomes, so if more than one
+        side qualifies we keep only the single highest-edge side.
     """
     bets = []
     for o in OUTCOMES:
         odds = odds_1x2.get(o)
         if not odds or odds <= 1.0:
             continue
+        # Sharp-band sanity: if the best price is far longer than the sharp
+        # line (best implied << sharp implied), the best price is polluted.
+        if sharp_probs and sharp_probs.get(o):
+            best_implied = 1.0 / odds
+            if best_implied < SHARP_IMPLIED_MIN_RATIO * sharp_probs[o]:
+                continue
         p = model_probs.get(o, 0.0)
         edge = p * odds - 1.0
-        if edge >= MIN_EDGE:
+        if MIN_EDGE <= edge <= MAX_PLAUSIBLE_EDGE:
             sel_team = home if o == "1" else away if o == "2" else "Draw"
             bets.append({
                 "match_date": match_date,
@@ -66,6 +85,10 @@ def find_value_bets(match_date, home, away, model_probs, odds_1x2):
                 "stake_units": FLAT_STAKE_UNITS,
                 "kelly_units": kelly_units(p, odds),
             })
+    # Both-sides coherence guard: mutually exclusive 1X2 outcomes can't both be
+    # value on a coherent line. If more than one qualified, keep only the best.
+    if len(bets) > 1:
+        bets = [max(bets, key=lambda b: b["edge"])]
     return bets
 
 
@@ -82,7 +105,7 @@ def _two_way_value(match_date, home, away, market, probs, odds, labels):
         if not price or price <= 1.0:
             continue
         edge = p * price - 1.0
-        if edge >= MIN_EDGE:
+        if MIN_EDGE <= edge <= MAX_PLAUSIBLE_EDGE:
             bets.append({
                 "match_date": match_date,
                 "home_team": home,

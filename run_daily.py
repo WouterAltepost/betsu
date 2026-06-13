@@ -187,8 +187,13 @@ def run_morning(run_date, dry_run=False, window_hours=None):
         # both teams are seeded; record_matches blanks any absent model.
         match_rows.append((m_date, home, away, blended, preds))
 
-        # 1X2 value from the blended probabilities.
-        bets = value_mod.find_value_bets(m_date, home, away, blended, m["odds"])
+        # 1X2 value from the blended probabilities. When the sharp layer is on,
+        # pass Pinnacle's de-vig so a best price far longer than the sharp line
+        # is dropped as a polluted outlier (see docs/fix_inflated_odds_briefing.md).
+        sharp_for_value = (m.get("sharp_market_probs")
+                           if SHARP_SOFT_MONITORING_ENABLED else None)
+        bets = value_mod.find_value_bets(m_date, home, away, blended, m["odds"],
+                                         sharp_probs=sharp_for_value)
         # Over/Under 2.5 and BTTS value come from Poisson alone (the only layer
         # that produces goal-based probabilities) vs the book's totals/btts odds.
         if poisson_mkts:

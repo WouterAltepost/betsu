@@ -26,6 +26,11 @@ ENSEMBLE_WEIGHTS = {
 # A bet is "value" when our blended probability implies a fair price below the
 # bookmaker's offered price. Edge = model_prob * decimal_odds - 1.
 MIN_EDGE = 0.05          # only suggest bets with >= 5% expected value
+# Plausibility ceiling: any edge above this is treated as a data fault (stale or
+# incoherent odds), not real value, and the selection is dropped. Real value vs
+# a WC closing line is low-single to low-double-digit percent; a triple-digit
+# edge is always bad data. A fail-safe ceiling on top of MIN_EDGE.
+MAX_PLAUSIBLE_EDGE = float(os.environ.get("MAX_PLAUSIBLE_EDGE", "0.35"))
 MAX_BETS_PER_DAY = 8     # cap each run's message to the best N new bets
 # Two tracks (see docs/dashboard_redesign_briefing.md):
 #   model/paper track — flat 1-unit stakes, the benchmark betsu is judged on
@@ -74,6 +79,31 @@ ODDS_MARKETS = "h2h,totals"   # 1X2 + Over/Under 2.5.
 # call. Cost: the-odds-api bills 1 credit per market per region = 2 credits/call.
 ODDS_SPORT_WORLDCUP = "soccer_fifa_world_cup"
 # Pre-tournament we also test on friendlies / other live soccer.
+# Bookmaker coherence band for _best_odds. A book's price is only trusted when
+# that book's OWN 1X2 line is internally coherent: its overround (sum of 1/price
+# across 1/X/2) must fall in this band. Real books carry 1-20% vig, so a sane
+# line sits in [1.00, 1.20]. A side-swapped or stale book prices a favourite as
+# a longshot, blowing its overround far below 1.0 (or absurdly high), so it
+# fails this check and is excluded — killing the outlier at the source while
+# still line-shopping across the surviving good books.
+ODDS_MIN_OVERROUND = float(os.environ.get("ODDS_MIN_OVERROUND", "1.00"))
+ODDS_MAX_OVERROUND = float(os.environ.get("ODDS_MAX_OVERROUND", "1.20"))
+# Consensus outlier rejection — the real catch for swapped/mislabeled lines.
+# A garbled book (e.g. the favourite's short price misfiled onto the Draw slot,
+# seen from marathonbet in the eu feed) keeps a NORMAL overround, so the band
+# above can't see it — but each of its legs is a gross outlier vs the cross-book
+# median. We take a per-outcome median and DROP THE WHOLE BOOK for that match if
+# any leg falls outside [LOW, HIGH] x median (the whole line is untrustworthy,
+# not just one leg). Only applied with >= MIN_BOOKS full 1X2 lines so the median
+# is stable; below that we fall back to the overround filter alone.
+ODDS_OUTLIER_LOW = float(os.environ.get("ODDS_OUTLIER_LOW", "0.5"))
+ODDS_OUTLIER_HIGH = float(os.environ.get("ODDS_OUTLIER_HIGH", "2.0"))
+ODDS_OUTLIER_MIN_BOOKS = int(os.environ.get("ODDS_OUTLIER_MIN_BOOKS", "4"))
+# Sharp-band sanity (only applied when a sharp line is present): drop a 1X2
+# selection whose best-price implied prob is far below the sharp implied prob
+# (i.e. the best odds are much longer than the sharp line) — a polluted price.
+# Selection kept only when best_implied >= this ratio * sharp_implied.
+SHARP_IMPLIED_MIN_RATIO = float(os.environ.get("SHARP_IMPLIED_MIN_RATIO", "0.6"))
 
 # --- BTTS (both teams to score) via the per-event endpoint ------------------
 # "btts" is an ADDITIONAL market, so it can't ride the bulk /odds call — it only
