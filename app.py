@@ -13,12 +13,13 @@ Auth:
   - the dashboard uses HTTP Basic Auth when DASHBOARD_USER/DASHBOARD_PASSWORD are
     set (open if unset, for local dev).
 
-Runs are synchronous inside the request (a few seconds) — gunicorn --timeout 120.
+Runs are synchronous inside the request — gunicorn --timeout 300 gives a slow or
+cold-started run headroom to finish instead of the worker being killed mid-write.
 No background worker, no in-process scheduler; n8n owns scheduling.
 
 Run:
     python app.py                                   # local dev, http://127.0.0.1:5000
-    gunicorn app:app --workers 2 --timeout 120      # production (see Procfile)
+    gunicorn app:app --workers 2 --timeout 300      # production (see Procfile)
 """
 
 import hashlib

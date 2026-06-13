@@ -28,6 +28,7 @@ endpoints in app.py (n8n calls them); this CLI is the same logic for manual use.
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
+from time import perf_counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS,
@@ -92,6 +93,7 @@ def run_morning(run_date, dry_run=False, window_hours=None):
     the right Results row. Otherwise: scan run_date's slate (manual/CLI).
     Returns a dict summary {matches, new_bets, card, sent}.
     """
+    t_start = perf_counter()
     ratings = elo_mod.load_ratings()
     if window_hours is not None:
         matches = fixtures_mod.get_matches(window_hours=window_hours)
@@ -99,6 +101,7 @@ def run_morning(run_date, dry_run=False, window_hours=None):
     else:
         matches = fixtures_mod.get_matches(target_date=run_date)
         scope = run_date
+    t_fetch = perf_counter()
     print(f"[betsu] {len(matches)} match(es) for {scope}")
 
     match_rows, candidates = [], []
@@ -207,11 +210,16 @@ def run_morning(run_date, dry_run=False, window_hours=None):
         candidates.extend(bets)
         print(f"  {home} vs {away}: blend={blended} -> {len(bets)} value bet(s)")
 
+    t_blend = perf_counter()
+
     if dry_run:
         ranked = value_mod.rank_and_cap(candidates, MAX_BETS_PER_DAY)
         card = message_mod.build_daily_card(run_date, ranked, len(matches), None)
         print("\n----- CARD (dry run, not sent) -----\n")
         print(card)
+        print(f"[betsu] timing: fetch={t_fetch - t_start:.1f}s "
+              f"blend={t_blend - t_fetch:.1f}s sheets=0.0s(dry) "
+              f"total={perf_counter() - t_start:.1f}s")
         return {"matches": len(matches), "new_bets": len(ranked),
                 "card": card, "sent": False}
 
@@ -222,11 +230,15 @@ def run_morning(run_date, dry_run=False, window_hours=None):
     posted = tracker_mod.record_bets(ranked)
     record = tracker_mod.summary(write=True)
     card = message_mod.build_daily_card(run_date, posted, len(matches), record)
+    t_sheets = perf_counter()
 
     if posted:
         from tools.telegram_send import send_message
         send_message(card)
     print(f"[betsu] {len(posted)} new bet(s) posted.")
+    print(f"[betsu] timing: fetch={t_fetch - t_start:.1f}s "
+          f"blend={t_blend - t_fetch:.1f}s sheets={t_sheets - t_blend:.1f}s "
+          f"total={perf_counter() - t_start:.1f}s")
     return {"matches": len(matches), "new_bets": len(posted),
             "card": card, "sent": bool(posted)}
 
