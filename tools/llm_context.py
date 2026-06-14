@@ -31,12 +31,14 @@ import json
 import os
 import re
 import sys
+import time
 
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import (LLM_CACHE_HOURS, LLM_MAX_WEB_SEARCHES, LLM_MODEL,
-                    LLM_TIMEOUT_SECONDS, LLM_WEB_SEARCH_TOOL, MAX_LLM_NUDGE)
+from config import (LLM_CACHE_HOURS, LLM_FIXTURE_DEADLINE_S, LLM_MAX_WEB_SEARCHES,
+                    LLM_MODEL, LLM_TIMEOUT_SECONDS, LLM_WEB_SEARCH_TOOL,
+                    MAX_LLM_NUDGE)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
@@ -123,9 +125,15 @@ def _final_text(message):
     return "\n".join(parts)
 
 
-def _research(home, away, commence_time):
+def _research(home, away, commence_time, deadline_s=LLM_FIXTURE_DEADLINE_S):
     """Run the web-search-grounded Claude call. Returns the parsed JSON dict or
-    None. Raises on hard API/timeout errors (the caller turns that into zero)."""
+    None. Raises on hard API/timeout errors (the caller turns that into zero).
+
+    `deadline_s` is a wall-clock cap over the WHOLE pause_turn loop. The httpx
+    timeout (LLM_TIMEOUT_SECONDS) only bounds one messages.create; this caps the
+    sum so a chatty fixture can't run the loop to its iteration limit and blow
+    the run budget. Hitting the deadline returns whatever we have so far (parsed
+    if the last message carried an answer, else None → zero nudge upstream)."""
     import anthropic
 
     client = anthropic.Anthropic().with_options(timeout=LLM_TIMEOUT_SECONDS)
@@ -136,8 +144,11 @@ def _research(home, away, commence_time):
 
     # Server-side tool loop: the search runs on Anthropic's side; we only need to
     # resume on pause_turn (iteration limit) until the model gives its answer.
+    end = time.monotonic() + deadline_s
     message = None
     for _ in range(LLM_MAX_WEB_SEARCHES + 2):
+        if time.monotonic() >= end:
+            break  # fixture deadline hit → return what we have / None
         message = client.messages.create(
             model=LLM_MODEL, max_tokens=2048, tools=tools, messages=messages)
         if message.stop_reason != "pause_turn":
@@ -235,6 +246,33 @@ def _cache_store(key, result):
             _now().strftime("%Y-%m-%d %H:%M:%S"))
     except Exception:
         pass
+
+
+def _context_key(commence_time, home, away):
+    """The cache key for one fixture (date + teams). Falls back to a plain string
+    if the tracker can't be reached, matching get_adjustment's behaviour."""
+    match_date = (commence_time or "")[:10]
+    try:
+        from tools import tracker
+        return tracker.context_key(match_date, home, away)
+    except Exception:
+        return f"{match_date}|{home}|{away}"
+
+
+def cache_load_public(commence_time, home, away):
+    """Public warm-cache read for one fixture. Returns a fresh cached result dict
+    or None. Used by the parallel pre-pass to serve warm hits before researching
+    the misses (gspread reads stay on the main thread)."""
+    return _cache_load(_context_key(commence_time, home, away))
+
+
+def cache_store_public(commence_time, home, away, result):
+    """Public cache write for one fixture. The parallel pre-pass researches misses
+    in worker threads (network only) and calls this serially on the main thread,
+    since the gspread layer underneath is not thread-safe. Best-effort."""
+    if result is None:
+        return
+    _cache_store(_context_key(commence_time, home, away), result)
 
 
 # --- Public -----------------------------------------------------------------

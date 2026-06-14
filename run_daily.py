@@ -32,7 +32,8 @@ from time import perf_counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (MAX_BETS_PER_DAY, HOST_NATIONS, OU_LINE, SCAN_WINDOW_HOURS,
-                    LLM_ENABLED, AUTO_RESULTS_ENABLED, BTTS_ENABLED,
+                    LLM_ENABLED, LLM_RUN_BUDGET_S, LLM_MAX_PARALLEL,
+                    AUTO_RESULTS_ENABLED, BTTS_ENABLED,
                     BTTS_CACHE_HOURS, XG_ENABLED, SHARP_SOFT_MONITORING_ENABLED)
 from tools import elo as elo_mod
 from tools import ensemble as ensemble_mod
@@ -85,6 +86,74 @@ def _btts_odds_for(event_id, dry_run=False):
     return odds
 
 
+def _gather_llm_nudges(seeded_matches):
+    """Precompute the LLM context nudge for each seeded fixture, bounded by
+    LLM_RUN_BUDGET_S wall-clock and parallelised over LLM_MAX_PARALLEL workers.
+
+    `seeded_matches` is a list of (home, away, commence_time). Returns
+    {(home, away): result_dict} for fixtures that resolved in time; any fixture
+    not finished within the run budget is simply omitted, and the caller falls
+    back to a zero nudge for it. This is the big win over the old per-match
+    sequential calls: N fixtures cost ~one fixture's latency, not N×.
+
+    Cache discipline (gspread is not thread-safe): warm-cache reads happen here
+    on the main thread first, only the misses are researched in the pool with
+    use_cache=False (network only), and their results are written to the cache
+    serially on the main thread afterwards."""
+    from concurrent.futures import (ThreadPoolExecutor, TimeoutError as FutTimeout,
+                                     as_completed)
+    from tools import llm_context as llm_mod
+
+    results, misses = {}, []
+    # Warm-cache reads, serial (cheap; keeps Sheets access off the worker threads).
+    for (home, away, ct) in seeded_matches:
+        try:
+            cached = llm_mod.cache_load_public(ct, home, away)
+        except Exception:
+            cached = None
+        if cached is not None:
+            results[(home, away)] = cached
+        else:
+            misses.append((home, away, ct))
+
+    if not misses:
+        return results
+
+    to_store = []
+    # Not a `with` block on purpose: the context-manager exit joins in-flight
+    # threads, which would let a slow wave overrun the budget. We shut down
+    # without waiting so LLM_RUN_BUDGET_S is a real wall-clock ceiling; any
+    # straggler thread (already capped by LLM_FIXTURE_DEADLINE_S) finishes in
+    # the background and its result is harmlessly discarded. The timeout on
+    # as_completed enforces the budget even while we're blocked waiting for the
+    # next fixture to land — not only when one happens to complete.
+    ex = ThreadPoolExecutor(max_workers=LLM_MAX_PARALLEL)
+    try:
+        futs = {ex.submit(llm_mod.get_adjustment, h, a, ct, use_cache=False): (h, a, ct)
+                for (h, a, ct) in misses}
+        try:
+            for fut in as_completed(futs, timeout=LLM_RUN_BUDGET_S):
+                h, a, ct = futs[fut]
+                try:
+                    res = fut.result()  # already resolved by as_completed
+                    results[(h, a)] = res
+                    to_store.append((ct, h, a, res))
+                except Exception:
+                    pass  # this fixture errored → zero nudge downstream
+        except FutTimeout:
+            pass  # whole-run LLM budget spent → remaining fixtures use zero nudge
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+
+    # Serial cache writes on the main thread (never inside the pool).
+    for ct, h, a, res in to_store:
+        try:
+            llm_mod.cache_store_public(ct, h, a, res)
+        except Exception:
+            pass
+    return results
+
+
 def run_morning(run_date, dry_run=False, window_hours=None):
     """Scan fixtures, blend, find value, post only genuinely-new bets.
 
@@ -103,6 +172,24 @@ def run_morning(run_date, dry_run=False, window_hours=None):
         scope = run_date
     t_fetch = perf_counter()
     print(f"[betsu] {len(matches)} match(es) for {scope}")
+
+    # LLM context pre-pass: gather the nudge for every seeded fixture up front,
+    # in parallel and under a whole-run wall-clock budget, so the per-match loop
+    # below just reads a precomputed value. This is what keeps /run/morning under
+    # the worker timeout with the layer ON — N fixtures cost ~one fixture's
+    # latency, not N× (see docs/llm_keep_on_fix_briefing.md). The seeded gate
+    # here mirrors the Elo/Poisson gate in the loop, so we never research a
+    # fixture whose nudge won't be applied.
+    llm_nudges = {}
+    if LLM_ENABLED:
+        seeded_for_llm = [
+            (m["home_team"], m["away_team"], m.get("commence_time", ""))
+            for m in matches
+            if not [t for t in (m["home_team"], m["away_team"])
+                    if not elo_mod.is_seeded(t, ratings)]
+        ]
+        if seeded_for_llm:
+            llm_nudges = _gather_llm_nudges(seeded_for_llm)
 
     match_rows, candidates = [], []
     for m in matches:
@@ -170,9 +257,10 @@ def run_morning(run_date, dry_run=False, window_hours=None):
             # only when explicitly enabled. The layer is fail-safe — a failure
             # returns a zero nudge, so the blend is unaffected.
             if LLM_ENABLED:
-                from tools import llm_context as llm_mod
-                ctx = llm_mod.get_adjustment(home, away, m.get("commence_time", ""))
-                if any(v for v in ctx["nudge"].values()):
+                # Read the precomputed nudge from the parallel pre-pass. A fixture
+                # that missed the run budget is absent → zero nudge (no-op blend).
+                ctx = llm_nudges.get((home, away))
+                if ctx and any(v for v in ctx["nudge"].values()):
                     llm_adjust = ctx["nudge"]
                     src = (ctx.get("factors") or [{}])[0].get("source", "") \
                         or ctx.get("source", "")

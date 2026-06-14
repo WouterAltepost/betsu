@@ -150,8 +150,15 @@ LLM_CACHE_HOURS = 12
 # Anthropic server-side web search tool. Grounds every acted-on factor in a
 # recent, cited source; bump the version here if the API rev changes.
 LLM_WEB_SEARCH_TOOL = "web_search_20260209"
-LLM_MAX_WEB_SEARCHES = 5      # cap searches per fixture lookup (cost control)
-LLM_TIMEOUT_SECONDS = 90      # hard ceiling on a single get_adjustment call
+# Budget controls so the morning /run/morning fits the worker/n8n timeout while
+# the layer stays ON. The httpx timeout bounds ONE messages.create; the deadline
+# bounds the whole pause_turn loop for a fixture; the run budget bounds the whole
+# parallel pre-pass. All env-tunable. See docs/llm_keep_on_fix_briefing.md.
+LLM_MAX_WEB_SEARCHES   = int(os.environ.get("LLM_MAX_WEB_SEARCHES", "3"))    # cap searches/fixture (was 5)
+LLM_TIMEOUT_SECONDS    = int(os.environ.get("LLM_TIMEOUT_SECONDS", "25"))    # per-call httpx ceiling (was 90)
+LLM_FIXTURE_DEADLINE_S = int(os.environ.get("LLM_FIXTURE_DEADLINE_S", "40")) # whole pause_turn loop, per fixture
+LLM_RUN_BUDGET_S       = int(os.environ.get("LLM_RUN_BUDGET_S", "70"))       # whole-run LLM wall-clock
+LLM_MAX_PARALLEL       = int(os.environ.get("LLM_MAX_PARALLEL", "4"))        # concurrent fixtures
 
 # --- football-data.org auto-results -----------------------------------------
 # Before each grade run, finished World Cup scores are pulled from
